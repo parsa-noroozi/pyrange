@@ -7,7 +7,14 @@ name = "pyrange"
 version = "0.1.0"
 description = "A reproducible cybersecurity lab orchestration platform."
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "pydantic>=2.0",
+]
 
 [tool.setuptools.packages.find]
 include = ["pyrange*"]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]

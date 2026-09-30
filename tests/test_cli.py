@@ -112,3 +112,78 @@ def test_stop_command(
 
     mock_load_scenario.assert_called_once()
     mock_stop_lab.assert_called_once_with(scenario)
+
+
+from pydantic import ValidationError
+
+from pyrange.engine import DockerOperationError
+
+
+def test_inspect_missing_file_shows_clean_error() -> None:
+    result = runner.invoke(
+        app,
+        ["inspect", "does-not-exist.yaml"],
+    )
+
+    assert result.exit_code == 1
+    assert "Error: scenario file not found:" in result.stderr
+
+
+@patch("pyrange.cli.load_scenario")
+def test_inspect_invalid_scenario_shows_clean_error(
+    mock_load_scenario,
+) -> None:
+    mock_load_scenario.side_effect = ValidationError.from_exception_data(
+        "ScenarioConfig",
+        [],
+    )
+
+    result = runner.invoke(
+        app,
+        ["inspect", "invalid.yaml"],
+    )
+
+    assert result.exit_code == 1
+    assert "Error: invalid scenario:" in result.stderr
+
+
+@patch("pyrange.cli.start_lab")
+@patch("pyrange.cli.load_scenario")
+def test_start_docker_error_shows_clean_message(
+    mock_load_scenario,
+    mock_start_lab,
+) -> None:
+    scenario = make_test_scenario()
+    mock_load_scenario.return_value = scenario
+    mock_start_lab.side_effect = DockerOperationError(
+        "failed to create network"
+    )
+
+    result = runner.invoke(
+        app,
+        ["start", "scenario.yaml"],
+    )
+
+    assert result.exit_code == 1
+    assert "Error: Docker error: failed to create network" in result.stderr
+
+
+@patch("pyrange.cli.stop_lab")
+@patch("pyrange.cli.load_scenario")
+def test_stop_docker_error_shows_clean_message(
+    mock_load_scenario,
+    mock_stop_lab,
+) -> None:
+    scenario = make_test_scenario()
+    mock_load_scenario.return_value = scenario
+    mock_stop_lab.side_effect = DockerOperationError(
+        "failed to remove network"
+    )
+
+    result = runner.invoke(
+        app,
+        ["stop", "scenario.yaml"],
+    )
+
+    assert result.exit_code == 1
+    assert "Error: Docker error: failed to remove network" in result.stderr

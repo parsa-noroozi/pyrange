@@ -91,3 +91,80 @@ def remove_network(name: str) -> None:
     except subprocess.CalledProcessError as exc:
         message = exc.stderr.strip() or "Failed to remove Docker network."
         raise DockerOperationError(message) from exc
+
+
+def create_container(
+    name: str,
+    image: str,
+    network: str,
+    ip: str,
+) -> str:
+    try:
+        result = subprocess.run(
+            [
+                "docker",
+                "create",
+                "--name",
+                name,
+                "--network",
+                network,
+                "--ip",
+                ip,
+                "--label",
+                "pyrange.managed=true",
+                image,
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except FileNotFoundError as exc:
+        raise DockerUnavailableError(
+            "Docker CLI was not found."
+        ) from exc
+    except subprocess.CalledProcessError as exc:
+        message = exc.stderr.strip() or "Failed to create Docker container."
+        raise DockerOperationError(message) from exc
+
+    container_id = result.stdout.strip()
+
+    if not container_id:
+        raise DockerOperationError(
+            "Docker returned an empty container ID."
+        )
+
+    return container_id
+
+
+def start_container(name: str) -> None:
+    try:
+        subprocess.run(
+            ["docker", "start", name],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except FileNotFoundError as exc:
+        raise DockerUnavailableError(
+            "Docker CLI was not found."
+        ) from exc
+    except subprocess.CalledProcessError as exc:
+        message = exc.stderr.strip() or "Failed to start Docker container."
+        raise DockerOperationError(message) from exc
+
+
+def remove_container(name: str) -> None:
+    try:
+        subprocess.run(
+            ["docker", "rm", "--force", name],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except FileNotFoundError as exc:
+        raise DockerUnavailableError(
+            "Docker CLI was not found."
+        ) from exc
+    except subprocess.CalledProcessError as exc:
+        message = exc.stderr.strip() or "Failed to remove Docker container."
+        raise DockerOperationError(message) from exc

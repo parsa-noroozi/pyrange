@@ -21,5 +21,10 @@ dev = [
     "pytest>=8.0",
 ]
 
+[tool.pytest.ini_options]
+markers = [
+    "integration: tests that require a running Docker Engine",
+]
+
 [project.scripts]
 pyrange = "pyrange.cli:app"

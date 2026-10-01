@@ -8,25 +8,34 @@ Instead of manually creating networks and containers for every lab, PyRange allo
 
 ## Current Version
 
-**v0.1.0 — Initial Lab Orchestration**
+**v0.2.0 - Network Topology**
 
-The current release provides the core infrastructure required to load a scenario, validate it, create isolated Docker resources, and clean them up safely.
+PyRange v0.2.0 extends the initial orchestration engine with support for multi-network lab topologies and machines connected to multiple Docker networks.
+
+Scenarios can now describe segmented environments with independent IPv4 subnets, multiple interfaces per machine, static IP assignments, topology validation, and automated cleanup.
 
 ## Features
 
 * YAML-based lab definitions
 * Scenario validation with Pydantic
+* Multiple networks per scenario
+* Multiple network interfaces per machine
+* Static IPv4 addresses per interface
 * IPv4 subnet validation
-* Duplicate machine name and IP detection
+* Duplicate machine and network name detection
+* Duplicate IP detection within a network
+* Overlapping subnet detection
+* Unknown network reference detection
+* Network and broadcast address validation
 * Docker Engine availability checks
 * Isolated Docker bridge networks
-* Static container IP addresses
-* Docker container lifecycle management
+* Multi-network Docker container attachment
 * Scenario-level lab orchestration
 * Automatic rollback on startup failure
+* Reverse-order resource cleanup
 * CLI-based lab management
 * Clean CLI error handling
-* Unit and end-to-end integration tests
+* Unit and real Docker integration tests
 
 ## Architecture
 
@@ -40,7 +49,7 @@ YAML Loader
 ScenarioConfig
      |
      v
-Validation
+Topology Validation
      |
      v
 Lab Manager
@@ -48,14 +57,22 @@ Lab Manager
      v
 Docker Backend
      |
-     +-- Network
+     +-- Network A
+     |
+     +-- Network B
      |
      +-- Containers
+            |
+            +-- Interface 1
+            |
+            +-- Interface 2
 ```
 
 PyRange separates scenario definition, validation, orchestration, and Docker operations into independent components.
 
-This allows the execution backend and lab capabilities to evolve without coupling them directly to the scenario format.
+The scenario model describes the desired topology. The Lab Manager translates that validated topology into Docker resources while the Docker backend provides lower-level network and container operations.
+
+This separation allows future capabilities such as health checks, telemetry, scenario actions, and scoring to evolve without coupling them directly to the scenario format.
 
 ## Requirements
 
@@ -63,7 +80,7 @@ This allows the execution backend and lab capabilities to evolve without couplin
 * Docker Desktop or Docker Engine
 * Git
 
-Docker must be running before starting a lab.
+Docker must be running before starting a lab or running Docker integration tests.
 
 ## Installation
 
@@ -102,82 +119,131 @@ For development:
 python -m pip install -e ".[dev]"
 ```
 
-## Scenario Example
+## Scenario Format
 
-A basic lab can be defined as:
+A PyRange scenario can define multiple networks and multiple interfaces per machine.
+
+Example:
 
 ```yaml
-name: basic-web-lab
-description: Basic isolated web security laboratory
+name: segmented-lab
+description: Multi-network segmented cybersecurity laboratory
 
-network:
-  name: lab-net
-  subnet: 172.28.10.0/24
+networks:
+  - name: public-net
+    subnet: 172.28.20.0/24
+
+  - name: private-net
+    subnet: 172.28.30.0/24
 
 machines:
   - name: web
     image: nginx:alpine
-    ip: 172.28.10.10
+    interfaces:
+      - network: public-net
+        ip: 172.28.20.10
 
   - name: analyst
-    image: alpine:latest
-    ip: 172.28.10.20
+    image: nginx:alpine
+    interfaces:
+      - network: public-net
+        ip: 172.28.20.20
+
+      - network: private-net
+        ip: 172.28.30.20
 ```
 
-Before Docker resources are created, PyRange validates the scenario.
+This scenario produces the following topology:
+
+```text
+segmented-lab
+
+public-net (172.28.20.0/24)
+|
++-- web
+|   `-- 172.28.20.10
+|
+`-- analyst
+    `-- 172.28.20.20
+
+
+private-net (172.28.30.0/24)
+|
+`-- analyst
+    `-- 172.28.30.20
+```
+
+The `analyst` machine is multi-homed: it is connected to both networks with a separate static IP address on each interface.
+
+## Scenario Validation
+
+PyRange validates the complete topology before Docker resources are created.
 
 Examples of rejected configurations include:
 
 * Duplicate machine names
-* Duplicate IP addresses
-* IP addresses outside the configured subnet
-* Network or broadcast addresses assigned to machines
+* Duplicate network names
+* Duplicate network attachments on the same machine
+* Duplicate IP addresses on the same network
+* Interfaces referencing undefined networks
+* IP addresses outside the referenced subnet
+* Network or broadcast addresses assigned to interfaces
+* Overlapping network subnets
 * Unknown configuration fields
+
+This prevents invalid lab definitions from reaching the Docker orchestration layer.
 
 ## CLI
 
 Inspect a scenario:
 
 ```bash
-pyrange inspect scenarios/basic-web-lab.yaml
+pyrange inspect scenarios/segmented-lab.yaml
 ```
 
 Example output:
 
 ```text
-Scenario: basic-web-lab
-Description: Basic isolated web security laboratory
-Network: lab-net
-Subnet: 172.28.10.0/24
+Scenario: segmented-lab
+Description: Multi-network segmented cybersecurity laboratory
+Networks: 2
+  - public-net: 172.28.20.0/24
+  - private-net: 172.28.30.0/24
 Machines: 2
-  - web: nginx:alpine @ 172.28.10.10
-  - analyst: alpine:latest @ 172.28.10.20
+  - web: nginx:alpine
+      public-net @ 172.28.20.10
+  - analyst: nginx:alpine
+      public-net @ 172.28.20.20
+      private-net @ 172.28.30.20
 ```
 
 Start a lab:
 
 ```bash
-pyrange start scenarios/basic-web-lab.yaml
+pyrange start scenarios/segmented-lab.yaml
 ```
 
 Stop and remove the lab:
 
 ```bash
-pyrange stop scenarios/basic-web-lab.yaml
+pyrange stop scenarios/segmented-lab.yaml
 ```
 
 ## Lab Lifecycle
 
-When a lab starts, PyRange currently performs the following operations:
+When a lab starts, PyRange performs the following operations:
 
 ```text
 Validate scenario
       |
       v
-Create isolated network
+Create all isolated networks
       |
       v
-Create containers
+Create each container on its primary network
+      |
+      v
+Attach additional network interfaces
       |
       v
 Assign static IP addresses
@@ -186,29 +252,36 @@ Assign static IP addresses
 Start containers
 ```
 
+For a multi-homed machine, the first interface is configured when the container is created.
+
+Additional interfaces are attached using Docker network connections with their configured static IP addresses.
+
 If startup fails partway through, PyRange attempts to roll back resources that were already created.
 
-When the lab is stopped, containers are removed before the Docker network is removed.
+Rollback removes created containers first and then removes created networks in reverse order.
+
+When a lab is stopped normally, PyRange also removes containers and networks in reverse order.
 
 ## Resource Naming
 
 Docker resources created by PyRange use deterministic names.
 
-For example:
+For the segmented example:
 
 ```text
-pyrange-basic-web-lab-lab-net
-pyrange-basic-web-lab-web
-pyrange-basic-web-lab-analyst
+pyrange-segmented-lab-public-net
+pyrange-segmented-lab-private-net
+pyrange-segmented-lab-web
+pyrange-segmented-lab-analyst
 ```
 
-Managed containers are also labeled with:
+Managed containers are labeled with:
 
 ```text
 pyrange.managed=true
 ```
 
-This will allow future PyRange versions to identify and manage their own Docker resources safely.
+This provides a foundation for future PyRange versions to identify and manage their own Docker resources safely.
 
 ## Testing
 
@@ -218,77 +291,94 @@ Run the full test suite:
 pytest -v
 ```
 
-The v0.1.0 release includes **40 automated tests**.
+PyRange v0.2.0 includes **47 automated tests**.
 
 The suite covers:
 
 * Scenario validation
+* Multi-network topology validation
 * YAML loading
 * CLI behavior
 * CLI error handling
 * Docker availability
 * Docker network lifecycle
 * Docker container lifecycle
-* Lab Manager orchestration
-* Rollback behavior
+* Docker network attachment
+* Multi-network Lab Manager orchestration
+* Multi-network rollback behavior
+* Reverse-order cleanup
 * End-to-end Docker lifecycle
+* End-to-end multi-network topology
 
-Integration tests that require Docker are marked separately:
+Integration tests that require a running Docker Engine are marked separately:
 
 ```bash
-pytest -v -m integration
+pytest -v -m integration -rs
 ```
+
+The v0.2.0 test suite currently includes two real Docker integration tests:
+
+* Basic single-network lab lifecycle
+* Segmented multi-network lab lifecycle
+
+The multi-network integration test verifies real Docker network membership and static IP assignments.
 
 ## Project Structure
 
 ```text
 pyrange/
-├── pyrange/
-│   ├── cli.py
-│   ├── core/
-│   │   └── scenario_loader.py
-│   ├── engine/
-│   │   ├── docker.py
-│   │   └── manager.py
-│   └── models/
-│       └── scenario.py
-│
-├── scenarios/
-│   └── basic-web-lab.yaml
-│
-├── tests/
-│   ├── integration/
-│   ├── test_cli.py
-│   ├── test_docker_engine.py
-│   ├── test_lab_manager.py
-│   ├── test_scenario.py
-│   └── test_scenario_loader.py
-│
-├── docs/
-├── pyproject.toml
-├── README.md
-└── SECURITY.md
+|-- pyrange/
+|   |-- cli.py
+|   |-- core/
+|   |   `-- scenario_loader.py
+|   |-- engine/
+|   |   |-- docker.py
+|   |   `-- manager.py
+|   `-- models/
+|       `-- scenario.py
+|
+|-- scenarios/
+|   |-- basic-web-lab.yaml
+|   `-- segmented-lab.yaml
+|
+|-- tests/
+|   |-- integration/
+|   |   |-- test_lab_lifecycle.py
+|   |   `-- test_multi_network_lifecycle.py
+|   |-- test_cli.py
+|   |-- test_docker_engine.py
+|   |-- test_lab_manager.py
+|   |-- test_scenario.py
+|   `-- test_scenario_loader.py
+|
+|-- docs/
+|-- pyproject.toml
+|-- README.md
+`-- SECURITY.md
 ```
 
 ## Current Limitations
 
-PyRange v0.1.0 intentionally keeps the lab model simple.
+PyRange v0.2.0 focuses on topology definition and Docker orchestration.
 
 Current limitations include:
 
-* One network per scenario
-* One network interface per machine
+* IPv4 networking only
+* Docker is the only execution backend
 * No custom machine commands
 * No persistent state database
-* No health checks
+* No container health checks
+* No snapshots
 * No telemetry collection
-* No detection or scoring system
+* No scenario actions
+* No detection integration
+* No scoring system
 
 These are planned areas of development rather than hidden limitations.
 
 ## Roadmap
 
-### v0.1 — Core Orchestration
+### v0.1 - Core Orchestration
 
 * [x] Scenario models
 * [x] YAML loading
@@ -300,16 +390,28 @@ These are planned areas of development rather than hidden limitations.
 * [x] Rollback
 * [x] End-to-end testing
 
-### v0.2 — Network Topology
+### v0.2 - Network Topology
+
+* [x] Multiple networks per scenario
+* [x] Multiple interfaces per machine
+* [x] Static IP addresses per interface
+* [x] Network reference validation
+* [x] Overlapping subnet detection
+* [x] Docker network attachment
+* [x] Multi-network orchestration
+* [x] Multi-network rollback and cleanup
+* [x] End-to-end segmented topology testing
+
+### v0.3 - Health Checks and Snapshots
 
 Planned focus:
 
-* Multiple networks per scenario
-* Machines connected to multiple networks
-* More realistic segmented lab architectures
-* Improved network validation
+* Container health monitoring
+* Machine readiness checks
+* Lab status reporting
+* Snapshot foundations
 
-Future versions will expand into health monitoring, telemetry, scenario actions, detection experiments, and scoring.
+Future versions will expand into telemetry, scenario actions, detection experiments, and scoring.
 
 ## Security
 

@@ -93,6 +93,36 @@ def remove_network(name: str) -> None:
         raise DockerOperationError(message) from exc
 
 
+def connect_container_to_network(
+    name: str,
+    network: str,
+    ip: str,
+) -> None:
+    result = subprocess.run(
+        [
+            "docker",
+            "network",
+            "connect",
+            "--ip",
+            ip,
+            network,
+            name,
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode != 0:
+        message = result.stderr.strip()
+        raise DockerOperationError(
+            message
+            or (
+                f"failed to connect container '{name}' "
+                f"to network '{network}'"
+            )
+        )
+
+
 def create_container(
     name: str,
     image: str,

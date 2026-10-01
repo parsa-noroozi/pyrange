@@ -4,7 +4,9 @@ from unittest.mock import patch
 import pytest
 
 from pyrange.engine import (
+    DockerOperationError,
     DockerUnavailableError,
+    connect_container_to_network,
     get_docker_server_version,
 )
 
@@ -339,3 +341,51 @@ def test_remove_container_raises_on_docker_error(mock_run) -> None:
         match="container not found",
     ):
         remove_container("test-web")
+
+
+def test_connect_container_to_network_success() -> None:
+    with patch(
+        "pyrange.engine.docker.subprocess.run"
+    ) as mock_run:
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stderr = ""
+
+        connect_container_to_network(
+            name="pyrange-test-web",
+            network="pyrange-test-private",
+            ip="172.28.20.10",
+        )
+
+        mock_run.assert_called_once_with(
+            [
+                "docker",
+                "network",
+                "connect",
+                "--ip",
+                "172.28.20.10",
+                "pyrange-test-private",
+                "pyrange-test-web",
+            ],
+            capture_output=True,
+            text=True,
+        )
+
+
+def test_connect_container_to_network_error() -> None:
+    with patch(
+        "pyrange.engine.docker.subprocess.run"
+    ) as mock_run:
+        mock_run.return_value.returncode = 1
+        mock_run.return_value.stderr = (
+            "failed to connect container"
+        )
+
+        with pytest.raises(
+            DockerOperationError,
+            match="failed to connect container",
+        ):
+            connect_container_to_network(
+                name="pyrange-test-web",
+                network="pyrange-test-private",
+                ip="172.28.20.10",
+            )

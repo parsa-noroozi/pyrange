@@ -1,0 +1,24 @@
+name: segmented-lab
+description: Multi-network segmented cybersecurity laboratory
+
+networks:
+  - name: public-net
+    subnet: 172.28.20.0/24
+
+  - name: private-net
+    subnet: 172.28.30.0/24
+
+machines:
+  - name: web
+    image: nginx:alpine
+    interfaces:
+      - network: public-net
+        ip: 172.28.20.10
+
+  - name: analyst
+    image: nginx:alpine
+    interfaces:
+      - network: public-net
+        ip: 172.28.20.20
+      - network: private-net
+        ip: 172.28.30.20

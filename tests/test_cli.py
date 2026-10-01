@@ -1,10 +1,43 @@
 from pathlib import Path
+from unittest.mock import patch
 
+from pydantic import ValidationError
 from typer.testing import CliRunner
 
 from pyrange.cli import app
+from pyrange.engine import DockerOperationError
+from pyrange.models import (
+    MachineConfig,
+    NetworkConfig,
+    NetworkInterfaceConfig,
+    ScenarioConfig,
+)
 
 runner = CliRunner()
+
+
+def make_test_scenario() -> ScenarioConfig:
+    return ScenarioConfig(
+        name="cli-lab",
+        networks=[
+            NetworkConfig(
+                name="cli-net",
+                subnet="172.28.40.0/24",
+            )
+        ],
+        machines=[
+            MachineConfig(
+                name="web",
+                image="nginx:alpine",
+                interfaces=[
+                    NetworkInterfaceConfig(
+                        network="cli-net",
+                        ip="172.28.40.10",
+                    )
+                ],
+            )
+        ],
+    )
 
 
 def test_inspect_command(tmp_path: Path) -> None:
@@ -14,14 +47,16 @@ def test_inspect_command(tmp_path: Path) -> None:
 name: cli-lab
 description: CLI test lab
 
-network:
-  name: cli-net
-  subnet: 172.28.20.0/24
+networks:
+  - name: cli-net
+    subnet: 172.28.20.0/24
 
 machines:
   - name: web
     image: nginx:alpine
-    ip: 172.28.20.10
+    interfaces:
+      - network: cli-net
+        ip: 172.28.20.10
 """.strip(),
         encoding="utf-8",
     )
@@ -33,10 +68,11 @@ machines:
 
     assert result.exit_code == 0
     assert "Scenario: cli-lab" in result.stdout
-    assert "Network: cli-net" in result.stdout
-    assert "Subnet: 172.28.20.0/24" in result.stdout
+    assert "Networks: 1" in result.stdout
+    assert "cli-net: 172.28.20.0/24" in result.stdout
     assert "Machines: 1" in result.stdout
-    assert "web: nginx:alpine @ 172.28.20.10" in result.stdout
+    assert "web: nginx:alpine" in result.stdout
+    assert "cli-net @ 172.28.20.10" in result.stdout
 
 
 def test_inspect_missing_file_fails() -> None:
@@ -46,28 +82,6 @@ def test_inspect_missing_file_fails() -> None:
     )
 
     assert result.exit_code != 0
-
-
-from unittest.mock import patch
-
-from pyrange.models import MachineConfig, NetworkConfig, ScenarioConfig
-
-
-def make_test_scenario() -> ScenarioConfig:
-    return ScenarioConfig(
-        name="cli-lab",
-        network=NetworkConfig(
-            name="cli-net",
-            subnet="172.28.40.0/24",
-        ),
-        machines=[
-            MachineConfig(
-                name="web",
-                image="nginx:alpine",
-                ip="172.28.40.10",
-            )
-        ],
-    )
 
 
 @patch("pyrange.cli.start_lab")
@@ -112,11 +126,6 @@ def test_stop_command(
 
     mock_load_scenario.assert_called_once()
     mock_stop_lab.assert_called_once_with(scenario)
-
-
-from pydantic import ValidationError
-
-from pyrange.engine import DockerOperationError
 
 
 def test_inspect_missing_file_shows_clean_error() -> None:
@@ -165,7 +174,10 @@ def test_start_docker_error_shows_clean_message(
     )
 
     assert result.exit_code == 1
-    assert "Error: Docker error: failed to create network" in result.stderr
+    assert (
+        "Error: Docker error: failed to create network"
+        in result.stderr
+    )
 
 
 @patch("pyrange.cli.stop_lab")
@@ -186,4 +198,7 @@ def test_stop_docker_error_shows_clean_message(
     )
 
     assert result.exit_code == 1
-    assert "Error: Docker error: failed to remove network" in result.stderr
+    assert (
+        "Error: Docker error: failed to remove network"
+        in result.stderr
+    )

@@ -40,15 +40,24 @@ def inspect(path: Path) -> None:
 
     typer.echo(f"Scenario: {scenario.name}")
     typer.echo(f"Description: {scenario.description or '-'}")
-    typer.echo(f"Network: {scenario.network.name}")
-    typer.echo(f"Subnet: {scenario.network.subnet}")
+    typer.echo(f"Networks: {len(scenario.networks)}")
+
+    for network in scenario.networks:
+        typer.echo(
+            f"  - {network.name}: {network.subnet}"
+        )
+
     typer.echo(f"Machines: {len(scenario.machines)}")
 
     for machine in scenario.machines:
         typer.echo(
-            f"  - {machine.name}: "
-            f"{machine.image} @ {machine.ip}"
+            f"  - {machine.name}: {machine.image}"
         )
+
+        for interface in machine.interfaces:
+            typer.echo(
+                f"      {interface.network} @ {interface.ip}"
+            )
 
 
 @app.command()

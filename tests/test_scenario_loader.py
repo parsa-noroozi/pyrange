@@ -12,14 +12,16 @@ def test_loads_valid_scenario(tmp_path: Path) -> None:
         """
 name: test-lab
 
-network:
-  name: test-net
-  subnet: 172.28.10.0/24
+networks:
+  - name: test-net
+    subnet: 172.28.10.0/24
 
 machines:
   - name: web
     image: nginx:alpine
-    ip: 172.28.10.10
+    interfaces:
+      - network: test-net
+        ip: 172.28.10.10
 """.strip(),
         encoding="utf-8",
     )
@@ -27,7 +29,7 @@ machines:
     scenario = load_scenario(scenario_file)
 
     assert scenario.name == "test-lab"
-    assert scenario.network.name == "test-net"
+    assert scenario.networks[0].name == "test-net"
     assert len(scenario.machines) == 1
 
 
@@ -51,19 +53,24 @@ def test_rejects_invalid_scenario(tmp_path: Path) -> None:
         """
 name: invalid-lab
 
-network:
-  name: test-net
-  subnet: 172.28.10.0/24
+networks:
+  - name: test-net
+    subnet: 172.28.10.0/24
 
 machines:
   - name: web
     image: nginx:alpine
-    ip: 10.0.0.5
+    interfaces:
+      - network: test-net
+        ip: 10.0.0.5
 """.strip(),
         encoding="utf-8",
     )
 
-    with pytest.raises(ValidationError, match="is outside subnet"):
+    with pytest.raises(
+        ValidationError,
+        match="is outside subnet",
+    ):
         load_scenario(scenario_file)
 
 

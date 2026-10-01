@@ -20,12 +20,16 @@ from pyrange.models import (
 @pytest.fixture
 def scenario() -> ScenarioConfig:
     return ScenarioConfig(
-        name="test-lab",
+        name="segmented-lab",
         networks=[
             NetworkConfig(
-                name="lab-net",
-                subnet="172.28.30.0/24",
-            )
+                name="public-net",
+                subnet="172.28.10.0/24",
+            ),
+            NetworkConfig(
+                name="private-net",
+                subnet="172.28.20.0/24",
+            ),
         ],
         machines=[
             MachineConfig(
@@ -33,8 +37,8 @@ def scenario() -> ScenarioConfig:
                 image="nginx:alpine",
                 interfaces=[
                     NetworkInterfaceConfig(
-                        network="lab-net",
-                        ip="172.28.30.10",
+                        network="public-net",
+                        ip="172.28.10.10",
                     )
                 ],
             ),
@@ -43,9 +47,13 @@ def scenario() -> ScenarioConfig:
                 image="alpine:latest",
                 interfaces=[
                     NetworkInterfaceConfig(
-                        network="lab-net",
-                        ip="172.28.30.20",
-                    )
+                        network="public-net",
+                        ip="172.28.10.20",
+                    ),
+                    NetworkInterfaceConfig(
+                        network="private-net",
+                        ip="172.28.20.20",
+                    ),
                 ],
             ),
         ],
@@ -55,11 +63,20 @@ def scenario() -> ScenarioConfig:
 def test_generates_resource_names(
     scenario: ScenarioConfig,
 ) -> None:
-    network = scenario.networks[0]
+    assert (
+        get_lab_network_name(
+            scenario,
+            scenario.networks[0],
+        )
+        == "pyrange-segmented-lab-public-net"
+    )
 
     assert (
-        get_lab_network_name(scenario, network)
-        == "pyrange-test-lab-lab-net"
+        get_lab_network_name(
+            scenario,
+            scenario.networks[1],
+        )
+        == "pyrange-segmented-lab-private-net"
     )
 
     assert (
@@ -67,85 +84,112 @@ def test_generates_resource_names(
             scenario,
             scenario.machines[0],
         )
-        == "pyrange-test-lab-web"
+        == "pyrange-segmented-lab-web"
     )
 
 
 @patch("pyrange.engine.manager.start_container")
+@patch(
+    "pyrange.engine.manager."
+    "connect_container_to_network"
+)
 @patch("pyrange.engine.manager.create_container")
 @patch("pyrange.engine.manager.create_network")
-def test_start_lab_creates_network_and_containers(
+def test_start_lab_creates_multi_network_topology(
     mock_create_network,
     mock_create_container,
+    mock_connect_container_to_network,
     mock_start_container,
     scenario: ScenarioConfig,
 ) -> None:
     start_lab(scenario)
 
-    mock_create_network.assert_called_once_with(
-        "pyrange-test-lab-lab-net",
-        "172.28.30.0/24",
-    )
-
-    assert mock_create_container.call_args_list == [
+    assert mock_create_network.call_args_list == [
         call(
-            name="pyrange-test-lab-web",
-            image="nginx:alpine",
-            network="pyrange-test-lab-lab-net",
-            ip="172.28.30.10",
+            "pyrange-segmented-lab-public-net",
+            "172.28.10.0/24",
         ),
         call(
-            name="pyrange-test-lab-analyst",
-            image="alpine:latest",
-            network="pyrange-test-lab-lab-net",
-            ip="172.28.30.20",
+            "pyrange-segmented-lab-private-net",
+            "172.28.20.0/24",
         ),
     ]
 
+    assert mock_create_container.call_args_list == [
+        call(
+            name="pyrange-segmented-lab-web",
+            image="nginx:alpine",
+            network=(
+                "pyrange-segmented-lab-public-net"
+            ),
+            ip="172.28.10.10",
+        ),
+        call(
+            name="pyrange-segmented-lab-analyst",
+            image="alpine:latest",
+            network=(
+                "pyrange-segmented-lab-public-net"
+            ),
+            ip="172.28.10.20",
+        ),
+    ]
+
+    mock_connect_container_to_network.assert_called_once_with(
+        name="pyrange-segmented-lab-analyst",
+        network="pyrange-segmented-lab-private-net",
+        ip="172.28.20.20",
+    )
+
     assert mock_start_container.call_args_list == [
-        call("pyrange-test-lab-web"),
-        call("pyrange-test-lab-analyst"),
+        call("pyrange-segmented-lab-web"),
+        call("pyrange-segmented-lab-analyst"),
     ]
 
 
 @patch("pyrange.engine.manager.remove_network")
 @patch("pyrange.engine.manager.remove_container")
 @patch("pyrange.engine.manager.start_container")
+@patch(
+    "pyrange.engine.manager."
+    "connect_container_to_network"
+)
 @patch("pyrange.engine.manager.create_container")
 @patch("pyrange.engine.manager.create_network")
-def test_start_lab_rolls_back_on_failure(
+def test_start_lab_rolls_back_multi_network_failure(
     mock_create_network,
     mock_create_container,
+    mock_connect_container_to_network,
     mock_start_container,
     mock_remove_container,
     mock_remove_network,
     scenario: ScenarioConfig,
 ) -> None:
-    mock_create_container.side_effect = [
-        "container-1",
+    mock_connect_container_to_network.side_effect = (
         DockerOperationError(
-            "failed to create container"
-        ),
-    ]
+            "failed to connect network"
+        )
+    )
 
     with pytest.raises(
         DockerOperationError,
-        match="failed to create container",
+        match="failed to connect network",
     ):
         start_lab(scenario)
 
-    mock_remove_container.assert_called_once_with(
-        "pyrange-test-lab-web"
-    )
+    assert mock_remove_container.call_args_list == [
+        call("pyrange-segmented-lab-analyst"),
+        call("pyrange-segmented-lab-web"),
+    ]
 
-    mock_remove_network.assert_called_once_with(
-        "pyrange-test-lab-lab-net"
-    )
+    assert mock_remove_network.call_args_list == [
+        call("pyrange-segmented-lab-private-net"),
+        call("pyrange-segmented-lab-public-net"),
+    ]
 
 
 @patch("pyrange.engine.manager.remove_network")
 @patch("pyrange.engine.manager.remove_container")
-def test_stop_lab_removes_containers_in_reverse_order(
+def test_stop_lab_removes_resources_in_reverse_order(
     mock_remove_container,
     mock_remove_network,
     scenario: ScenarioConfig,
@@ -153,10 +197,11 @@ def test_stop_lab_removes_containers_in_reverse_order(
     stop_lab(scenario)
 
     assert mock_remove_container.call_args_list == [
-        call("pyrange-test-lab-analyst"),
-        call("pyrange-test-lab-web"),
+        call("pyrange-segmented-lab-analyst"),
+        call("pyrange-segmented-lab-web"),
     ]
 
-    mock_remove_network.assert_called_once_with(
-        "pyrange-test-lab-lab-net"
-    )
+    assert mock_remove_network.call_args_list == [
+        call("pyrange-segmented-lab-private-net"),
+        call("pyrange-segmented-lab-public-net"),
+    ]

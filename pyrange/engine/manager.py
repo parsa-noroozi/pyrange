@@ -1,6 +1,7 @@
 from pyrange.engine.docker import (
     DockerOperationError,
     DockerUnavailableError,
+    connect_container_to_network,
     create_container,
     create_network,
     remove_container,
@@ -33,26 +34,27 @@ def get_lab_container_name(
 
 
 def start_lab(scenario: ScenarioConfig) -> None:
-    if len(scenario.networks) != 1:
-        raise LabManagerError(
-            "multi-network orchestration is not implemented yet"
-        )
-
-    network = scenario.networks[0]
-    network_name = get_lab_network_name(
-        scenario,
-        network,
-    )
-
+    created_networks: list[str] = []
     created_containers: list[str] = []
-    network_created = False
+
+    network_names = {
+        network.name: get_lab_network_name(
+            scenario,
+            network,
+        )
+        for network in scenario.networks
+    }
 
     try:
-        create_network(
-            network_name,
-            str(network.subnet),
-        )
-        network_created = True
+        for network in scenario.networks:
+            network_name = network_names[network.name]
+
+            create_network(
+                network_name,
+                str(network.subnet),
+            )
+
+            created_networks.append(network_name)
 
         for machine in scenario.machines:
             container_name = get_lab_container_name(
@@ -60,40 +62,55 @@ def start_lab(scenario: ScenarioConfig) -> None:
                 machine,
             )
 
-            interface = machine.interfaces[0]
+            primary_interface = machine.interfaces[0]
 
             create_container(
                 name=container_name,
                 image=machine.image,
-                network=network_name,
-                ip=str(interface.ip),
+                network=network_names[
+                    primary_interface.network
+                ],
+                ip=str(primary_interface.ip),
             )
 
             created_containers.append(container_name)
+
+            for interface in machine.interfaces[1:]:
+                connect_container_to_network(
+                    name=container_name,
+                    network=network_names[
+                        interface.network
+                    ],
+                    ip=str(interface.ip),
+                )
+
             start_container(container_name)
 
     except (DockerOperationError, DockerUnavailableError):
-        for container_name in reversed(created_containers):
+        for container_name in reversed(
+            created_containers
+        ):
             try:
                 remove_container(container_name)
-            except (DockerOperationError, DockerUnavailableError):
+            except (
+                DockerOperationError,
+                DockerUnavailableError,
+            ):
                 pass
 
-        if network_created:
+        for network_name in reversed(created_networks):
             try:
                 remove_network(network_name)
-            except (DockerOperationError, DockerUnavailableError):
+            except (
+                DockerOperationError,
+                DockerUnavailableError,
+            ):
                 pass
 
         raise
 
 
 def stop_lab(scenario: ScenarioConfig) -> None:
-    if len(scenario.networks) != 1:
-        raise LabManagerError(
-            "multi-network orchestration is not implemented yet"
-        )
-
     errors: list[str] = []
 
     for machine in reversed(scenario.machines):
@@ -104,20 +121,28 @@ def stop_lab(scenario: ScenarioConfig) -> None:
 
         try:
             remove_container(container_name)
-        except (DockerOperationError, DockerUnavailableError) as exc:
+        except (
+            DockerOperationError,
+            DockerUnavailableError,
+        ) as exc:
             errors.append(str(exc))
 
-    network_name = get_lab_network_name(
-        scenario,
-        scenario.networks[0],
-    )
+    for network in reversed(scenario.networks):
+        network_name = get_lab_network_name(
+            scenario,
+            network,
+        )
 
-    try:
-        remove_network(network_name)
-    except (DockerOperationError, DockerUnavailableError) as exc:
-        errors.append(str(exc))
+        try:
+            remove_network(network_name)
+        except (
+            DockerOperationError,
+            DockerUnavailableError,
+        ) as exc:
+            errors.append(str(exc))
 
     if errors:
         raise LabManagerError(
-            "Failed to fully stop lab: " + "; ".join(errors)
+            "Failed to fully stop lab: "
+            + "; ".join(errors)
         )

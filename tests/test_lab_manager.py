@@ -9,36 +9,64 @@ from pyrange.engine.manager import (
     start_lab,
     stop_lab,
 )
-from pyrange.models import MachineConfig, NetworkConfig, ScenarioConfig
+from pyrange.models import (
+    MachineConfig,
+    NetworkConfig,
+    NetworkInterfaceConfig,
+    ScenarioConfig,
+)
 
 
 @pytest.fixture
 def scenario() -> ScenarioConfig:
     return ScenarioConfig(
         name="test-lab",
-        network=NetworkConfig(
-            name="lab-net",
-            subnet="172.28.30.0/24",
-        ),
+        networks=[
+            NetworkConfig(
+                name="lab-net",
+                subnet="172.28.30.0/24",
+            )
+        ],
         machines=[
             MachineConfig(
                 name="web",
                 image="nginx:alpine",
-                ip="172.28.30.10",
+                interfaces=[
+                    NetworkInterfaceConfig(
+                        network="lab-net",
+                        ip="172.28.30.10",
+                    )
+                ],
             ),
             MachineConfig(
                 name="analyst",
                 image="alpine:latest",
-                ip="172.28.30.20",
+                interfaces=[
+                    NetworkInterfaceConfig(
+                        network="lab-net",
+                        ip="172.28.30.20",
+                    )
+                ],
             ),
         ],
     )
 
 
-def test_generates_resource_names(scenario: ScenarioConfig) -> None:
-    assert get_lab_network_name(scenario) == "pyrange-test-lab-lab-net"
+def test_generates_resource_names(
+    scenario: ScenarioConfig,
+) -> None:
+    network = scenario.networks[0]
+
     assert (
-        get_lab_container_name(scenario, scenario.machines[0])
+        get_lab_network_name(scenario, network)
+        == "pyrange-test-lab-lab-net"
+    )
+
+    assert (
+        get_lab_container_name(
+            scenario,
+            scenario.machines[0],
+        )
         == "pyrange-test-lab-web"
     )
 
@@ -95,7 +123,9 @@ def test_start_lab_rolls_back_on_failure(
 ) -> None:
     mock_create_container.side_effect = [
         "container-1",
-        DockerOperationError("failed to create container"),
+        DockerOperationError(
+            "failed to create container"
+        ),
     ]
 
     with pytest.raises(
@@ -107,6 +137,7 @@ def test_start_lab_rolls_back_on_failure(
     mock_remove_container.assert_called_once_with(
         "pyrange-test-lab-web"
     )
+
     mock_remove_network.assert_called_once_with(
         "pyrange-test-lab-lab-net"
     )

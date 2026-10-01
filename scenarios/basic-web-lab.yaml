@@ -1,16 +1,19 @@
 name: basic-web-lab
 description: Basic isolated web security laboratory
 
-network:
-  name: lab-net
-  subnet: 172.28.10.0/24
+networks:
+  - name: lab-net
+    subnet: 172.28.10.0/24
 
 machines:
   - name: web
     image: nginx:alpine
-    ip: 172.28.10.10
+    interfaces:
+      - network: lab-net
+        ip: 172.28.10.10
 
   - name: analyst
     image: alpine:latest
-    ip: 172.28.10.20
-    
+    interfaces:
+      - network: lab-net
+        ip: 172.28.10.20

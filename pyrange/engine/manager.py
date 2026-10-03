@@ -8,6 +8,7 @@ from pyrange.engine.docker import (
     remove_network,
     start_container,
 )
+from pyrange.engine.health import evaluate_health_check
 from pyrange.models import (
     MachineConfig,
     NetworkConfig,
@@ -86,7 +87,48 @@ def start_lab(scenario: ScenarioConfig) -> None:
 
             start_container(container_name)
 
-    except (DockerOperationError, DockerUnavailableError):
+        for machine in scenario.machines:
+            if machine.health_check is None:
+                continue
+
+            container_name = get_lab_container_name(
+                scenario,
+                machine,
+            )
+
+            result = evaluate_health_check(
+                container_name,
+                machine.health_check,
+            )
+
+            if result.healthy:
+                continue
+
+            details = (
+                result.stderr.strip()
+                or result.stdout.strip()
+            )
+
+            if not details:
+                if result.exit_code is None:
+                    details = "no diagnostic output"
+                else:
+                    details = (
+                        f"exit code {result.exit_code}"
+                    )
+
+            raise LabManagerError(
+                f"Health check failed for machine "
+                f"'{machine.name}' after "
+                f"{result.attempts} attempt(s): "
+                f"{details}"
+            )
+
+    except (
+        DockerOperationError,
+        DockerUnavailableError,
+        LabManagerError,
+    ):
         for container_name in reversed(
             created_containers
         ):

@@ -1,6 +1,10 @@
 from ipaddress import IPv4Address, IPv4Network
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+
+NonEmptyString = Annotated[str, Field(min_length=1)]
 
 
 class NetworkConfig(BaseModel):
@@ -17,12 +21,23 @@ class NetworkInterfaceConfig(BaseModel):
     ip: IPv4Address
 
 
+class HealthCheckConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["command"] = "command"
+    command: list[NonEmptyString] = Field(min_length=1)
+    interval_seconds: float = Field(default=5.0, gt=0)
+    timeout_seconds: float = Field(default=2.0, gt=0)
+    retries: int = Field(default=3, ge=1)
+
+
 class MachineConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1)
     image: str = Field(min_length=1)
     interfaces: list[NetworkInterfaceConfig] = Field(min_length=1)
+    health_check: HealthCheckConfig | None = None
 
     @model_validator(mode="after")
     def validate_interfaces(self) -> "MachineConfig":

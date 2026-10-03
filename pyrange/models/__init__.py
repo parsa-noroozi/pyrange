@@ -1,4 +1,5 @@
 from pyrange.models.scenario import (
+    HealthCheckConfig,
     MachineConfig,
     NetworkConfig,
     NetworkInterfaceConfig,
@@ -6,6 +7,7 @@ from pyrange.models.scenario import (
 )
 
 __all__ = [
+    "HealthCheckConfig",
     "MachineConfig",
     "NetworkConfig",
     "NetworkInterfaceConfig",

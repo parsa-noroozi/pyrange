@@ -141,7 +141,7 @@ def test_rejects_invalid_health_check_retries() -> None:
     with pytest.raises(ValidationError):
         HealthCheckConfig(
             command=["true"],
-            retries=0,
+            retries=-1,
         )
 
 

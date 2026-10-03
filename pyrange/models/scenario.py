@@ -28,7 +28,7 @@ class HealthCheckConfig(BaseModel):
     command: list[NonEmptyString] = Field(min_length=1)
     interval_seconds: float = Field(default=5.0, gt=0)
     timeout_seconds: float = Field(default=2.0, gt=0)
-    retries: int = Field(default=3, ge=1)
+    retries: int = Field(default=3, ge=0)
 
 
 class MachineConfig(BaseModel):

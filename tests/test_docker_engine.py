@@ -4,9 +4,11 @@ from unittest.mock import patch
 import pytest
 
 from pyrange.engine import (
+    ContainerCommandResult,
     DockerOperationError,
     DockerUnavailableError,
     connect_container_to_network,
+    execute_container_command,
     get_docker_server_version,
 )
 
@@ -389,3 +391,113 @@ def test_connect_container_to_network_error() -> None:
                 network="pyrange-test-private",
                 ip="172.28.20.10",
             )
+            
+            
+@patch("pyrange.engine.docker.subprocess.run")
+def test_execute_container_command_returns_result(
+    mock_run,
+) -> None:
+    mock_run.return_value = subprocess.CompletedProcess(
+        args=["docker"],
+        returncode=0,
+        stdout="healthy\n",
+        stderr="",
+    )
+
+    result = execute_container_command(
+        name="test-web",
+        command=["wget", "--spider", "http://127.0.0.1"],
+        timeout_seconds=2.0,
+    )
+
+    assert result == ContainerCommandResult(
+        exit_code=0,
+        stdout="healthy\n",
+        stderr="",
+    )
+
+    mock_run.assert_called_once_with(
+        [
+            "docker",
+            "exec",
+            "test-web",
+            "wget",
+            "--spider",
+            "http://127.0.0.1",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=2.0,
+        check=False,
+    )
+
+
+@patch("pyrange.engine.docker.subprocess.run")
+def test_execute_container_command_preserves_failure(
+    mock_run,
+) -> None:
+    mock_run.return_value = subprocess.CompletedProcess(
+        args=["docker"],
+        returncode=1,
+        stdout="",
+        stderr="service unavailable\n",
+    )
+
+    result = execute_container_command(
+        name="test-web",
+        command=["health-check"],
+        timeout_seconds=2.0,
+    )
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert result.stderr == "service unavailable\n"
+
+
+@patch("pyrange.engine.docker.subprocess.run")
+def test_execute_container_command_raises_on_timeout(
+    mock_run,
+) -> None:
+    mock_run.side_effect = subprocess.TimeoutExpired(
+        cmd=["docker", "exec"],
+        timeout=2.0,
+    )
+
+    with pytest.raises(
+        DockerOperationError,
+        match="Command timed out",
+    ):
+        execute_container_command(
+            name="test-web",
+            command=["health-check"],
+            timeout_seconds=2.0,
+        )
+
+
+@patch("pyrange.engine.docker.subprocess.run")
+def test_execute_container_command_raises_when_cli_missing(
+    mock_run,
+) -> None:
+    mock_run.side_effect = FileNotFoundError
+
+    with pytest.raises(
+        DockerUnavailableError,
+        match="Docker CLI was not found",
+    ):
+        execute_container_command(
+            name="test-web",
+            command=["health-check"],
+            timeout_seconds=2.0,
+        )
+
+
+def test_execute_container_command_rejects_empty_command() -> None:
+    with pytest.raises(
+        ValueError,
+        match="command must not be empty",
+    ):
+        execute_container_command(
+            name="test-web",
+            command=[],
+            timeout_seconds=2.0,
+        )

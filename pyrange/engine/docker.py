@@ -1,4 +1,5 @@
 import subprocess
+from dataclasses import dataclass
 
 
 class DockerUnavailableError(RuntimeError):
@@ -38,6 +39,13 @@ def get_docker_server_version() -> str:
 
 class DockerOperationError(RuntimeError):
     pass
+
+
+@dataclass(frozen=True)
+class ContainerCommandResult:
+    exit_code: int
+    stdout: str
+    stderr: str
 
 
 def create_network(name: str, subnet: str) -> str:
@@ -181,6 +189,44 @@ def start_container(name: str) -> None:
     except subprocess.CalledProcessError as exc:
         message = exc.stderr.strip() or "Failed to start Docker container."
         raise DockerOperationError(message) from exc
+
+
+def execute_container_command(
+    name: str,
+    command: list[str],
+    timeout_seconds: float,
+) -> ContainerCommandResult:
+    if not command:
+        raise ValueError("command must not be empty")
+
+    try:
+        result = subprocess.run(
+            [
+                "docker",
+                "exec",
+                name,
+                *command,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+            check=False,
+        )
+    except FileNotFoundError as exc:
+        raise DockerUnavailableError(
+            "Docker CLI was not found."
+        ) from exc
+    except subprocess.TimeoutExpired as exc:
+        raise DockerOperationError(
+            f"Command timed out in container '{name}' "
+            f"after {timeout_seconds} seconds."
+        ) from exc
+
+    return ContainerCommandResult(
+        exit_code=result.returncode,
+        stdout=result.stdout,
+        stderr=result.stderr,
+    )
 
 
 def remove_container(name: str) -> None:

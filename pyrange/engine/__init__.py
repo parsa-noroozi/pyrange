@@ -1,9 +1,11 @@
 from pyrange.engine.docker import (
+    ContainerCommandResult,
     DockerOperationError,
     DockerUnavailableError,
     create_container,
     create_network,
     connect_container_to_network,
+    execute_container_command,
     get_docker_server_version,
     remove_container,
     remove_network,
@@ -18,11 +20,13 @@ from pyrange.engine.manager import (
 )
 
 __all__ = [
+    "ContainerCommandResult",
     "DockerOperationError",
     "DockerUnavailableError",
     "LabManagerError",
     "create_container",
     "create_network",
+    "execute_container_command",
     "get_docker_server_version",
     "get_lab_container_name",
     "get_lab_network_name",

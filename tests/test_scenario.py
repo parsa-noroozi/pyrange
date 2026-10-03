@@ -2,6 +2,7 @@ import pytest
 from pydantic import ValidationError
 
 from pyrange.models import (
+    HealthCheckConfig,
     MachineConfig,
     NetworkConfig,
     NetworkInterfaceConfig,
@@ -45,6 +46,111 @@ def test_valid_scenario() -> None:
     assert scenario.name == "web-lab"
     assert len(scenario.networks) == 1
     assert len(scenario.machines) == 1
+
+
+def test_valid_health_check() -> None:
+    health_check = HealthCheckConfig(
+        command=[
+            "wget",
+            "--spider",
+            "http://127.0.0.1",
+        ],
+        interval_seconds=10,
+        timeout_seconds=3,
+        retries=5,
+    )
+
+    assert health_check.type == "command"
+    assert health_check.command == [
+        "wget",
+        "--spider",
+        "http://127.0.0.1",
+    ]
+    assert health_check.interval_seconds == 10
+    assert health_check.timeout_seconds == 3
+    assert health_check.retries == 5
+
+
+def test_machine_health_check_is_optional() -> None:
+    machine = MachineConfig(
+        name="web",
+        image="nginx:alpine",
+        interfaces=[
+            make_interface(
+                "lab-net",
+                "172.28.10.10",
+            )
+        ],
+    )
+
+    assert machine.health_check is None
+
+
+def test_rejects_empty_health_check_command() -> None:
+    with pytest.raises(ValidationError):
+        HealthCheckConfig(
+            command=[],
+        )
+
+
+def test_rejects_empty_health_check_command_item() -> None:
+    with pytest.raises(ValidationError):
+        HealthCheckConfig(
+            command=[
+                "wget",
+                "",
+            ],
+        )
+
+
+@pytest.mark.parametrize(
+    "interval_seconds",
+    [
+        0,
+        -1,
+    ],
+)
+def test_rejects_invalid_health_check_interval(
+    interval_seconds: float,
+) -> None:
+    with pytest.raises(ValidationError):
+        HealthCheckConfig(
+            command=["true"],
+            interval_seconds=interval_seconds,
+        )
+
+
+@pytest.mark.parametrize(
+    "timeout_seconds",
+    [
+        0,
+        -1,
+    ],
+)
+def test_rejects_invalid_health_check_timeout(
+    timeout_seconds: float,
+) -> None:
+    with pytest.raises(ValidationError):
+        HealthCheckConfig(
+            command=["true"],
+            timeout_seconds=timeout_seconds,
+        )
+
+
+def test_rejects_invalid_health_check_retries() -> None:
+    with pytest.raises(ValidationError):
+        HealthCheckConfig(
+            command=["true"],
+            retries=0,
+        )
+
+
+def test_rejects_unknown_health_check_type() -> None:
+    with pytest.raises(ValidationError):
+        HealthCheckConfig(
+            type="http",
+            command=["true"],
+        )
 
 
 def test_rejects_duplicate_machine_names() -> None:

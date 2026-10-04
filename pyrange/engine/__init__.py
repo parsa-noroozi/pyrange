@@ -8,6 +8,7 @@ from pyrange.engine.docker import (
     connect_container_to_network,
     execute_container_command,
     get_docker_server_version,
+    get_image_id,
     remove_container,
     remove_network,
     start_container,
@@ -24,10 +25,12 @@ from pyrange.engine.manager import (
     stop_lab,
 )
 from pyrange.engine.snapshot import (
+    MachineRestoreResult,
     MachineSnapshot,
     SnapshotError,
     create_machine_snapshot,
     get_snapshot_image_ref,
+    restore_machine_snapshot,
 )
 
 
@@ -37,6 +40,7 @@ __all__ = [
     "DockerUnavailableError",
     "HealthCheckResult",
     "LabManagerError",
+    "MachineRestoreResult",
     "MachineSnapshot",
     "SnapshotError",
     "create_container",
@@ -46,11 +50,13 @@ __all__ = [
     "evaluate_health_check",
     "execute_container_command",
     "get_docker_server_version",
+    "get_image_id",
     "get_lab_container_name",
     "get_lab_network_name",
     "get_snapshot_image_ref",
     "remove_container",
     "remove_network",
+    "restore_machine_snapshot",
     "start_container",
     "start_lab",
     "stop_lab",

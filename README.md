@@ -86,7 +86,7 @@ The v0.3.0 release adds:
 * Snapshot and restore commands
 * Clean handling of scenario, Docker, orchestration, and snapshot errors
 * Unit coverage for validation, orchestration, health checks, snapshots, and CLI behavior
-* Real Docker integration coverage for snapshot and restore behavior
+* Real Docker integration coverage for lab lifecycle, segmented topology, and snapshot restoration
 
 ## Architecture
 
@@ -592,7 +592,7 @@ The resolved Docker image ID is used for container recreation instead of relying
 
 ### Restore Failure Semantics
 
-Snapshot restore is deliberately protected by preflight checks, but it is **not fully transactional**.
+Snapshot restore is protected by preflight checks, but it is **not fully transactional**.
 
 Failures that occur before the current container is removed leave that container untouched.
 
@@ -683,17 +683,25 @@ The suite covers:
 * Post-restore health checks
 * CLI behavior
 * CLI error handling
+* Real Docker lab lifecycle
+* Real Docker segmented multi-network topology
 * Real Docker snapshot and restore behavior
 
 Tests that require a running Docker Engine use the `integration` marker.
 
-Run integration tests with:
+Run only the integration tests with:
 
 ```bash
 pytest -v -m integration -rs
 ```
 
-The snapshot/restore integration test performs a real Docker workflow:
+PyRange v0.3.0 currently includes **3 real Docker integration tests**:
+
+1. Basic single-network lab lifecycle
+2. Segmented multi-network lab lifecycle and topology
+3. Snapshot creation and restoration
+
+The snapshot/restore integration test performs the following real Docker workflow:
 
 ```text
 Start real lab
@@ -720,9 +728,9 @@ Verify snapshot-state returned
 Clean Docker resources
 ```
 
-The test verifies that snapshot creation and restoration work against a real Docker Engine rather than only through mocked unit tests.
+The integration suite verifies real Docker behavior rather than relying only on mocked unit tests.
 
-If Docker is unavailable, the Docker-dependent integration test is skipped.
+If Docker is unavailable, Docker-dependent integration tests can be skipped.
 
 ## Project Structure
 
@@ -750,6 +758,10 @@ pyrange/
 |   `-- segmented-lab.yaml
 |
 |-- tests/
+|   |-- integration/
+|   |   |-- test_lab_lifecycle.py
+|   |   `-- test_multi_network_lifecycle.py
+|   |
 |   |-- test_cli.py
 |   |-- test_docker_engine.py
 |   |-- test_health.py

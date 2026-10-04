@@ -10,6 +10,7 @@ from pyrange.engine import (
     LabManagerError,
     SnapshotError,
     create_machine_snapshot,
+    restore_machine_snapshot,
     start_lab,
     stop_lab,
 )
@@ -145,6 +146,48 @@ def snapshot(
         fail(f"Docker error: {exc}")
 
     typer.echo("Snapshot created successfully.")
+    typer.echo(f"Machine: {result.machine_name}")
+    typer.echo(f"Image: {result.image_ref}")
+    typer.echo(f"Image ID: {result.image_id}")
+
+
+@app.command()
+def restore(
+    path: Path,
+    machine: str,
+    snapshot_name: str,
+) -> None:
+    """Restore a machine from a snapshot."""
+    try:
+        scenario = load_scenario(path)
+
+        typer.echo(
+            f"Restoring snapshot: "
+            f"{machine} ({snapshot_name})"
+        )
+
+        result = restore_machine_snapshot(
+            scenario,
+            machine_name=machine,
+            snapshot_name=snapshot_name,
+        )
+
+    except FileNotFoundError:
+        fail(f"scenario file not found: {path}")
+
+    except ValidationError as exc:
+        fail(f"invalid scenario: {exc}")
+
+    except (SnapshotError, ValueError) as exc:
+        fail(f"Snapshot error: {exc}")
+
+    except (
+        DockerUnavailableError,
+        DockerOperationError,
+    ) as exc:
+        fail(f"Docker error: {exc}")
+
+    typer.echo("Snapshot restored successfully.")
     typer.echo(f"Machine: {result.machine_name}")
     typer.echo(f"Image: {result.image_ref}")
     typer.echo(f"Image ID: {result.image_id}")

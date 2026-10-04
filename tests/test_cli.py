@@ -7,6 +7,7 @@ from typer.testing import CliRunner
 from pyrange.cli import app
 from pyrange.engine import (
     DockerOperationError,
+    MachineRestoreResult,
     MachineSnapshot,
     SnapshotError,
 )
@@ -356,5 +357,156 @@ def test_snapshot_docker_error_shows_clean_message(
     assert (
         "Error: Docker error: "
         "failed to create container snapshot"
+        in result.stderr
+    )
+
+
+@patch("pyrange.cli.restore_machine_snapshot")
+@patch("pyrange.cli.load_scenario")
+def test_restore_command(
+    mock_load_scenario,
+    mock_restore_machine_snapshot,
+) -> None:
+    scenario = make_test_scenario()
+    mock_load_scenario.return_value = scenario
+    mock_restore_machine_snapshot.return_value = (
+        MachineRestoreResult(
+            snapshot_name="checkpoint-1",
+            machine_name="web",
+            container_name="pyrange-cli-lab-web",
+            image_ref=(
+                "pyrange-snapshots/"
+                "cli-lab-web:checkpoint-1"
+            ),
+            image_id="sha256:snapshot123",
+        )
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "restore",
+            "scenario.yaml",
+            "web",
+            "checkpoint-1",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert (
+        "Restoring snapshot: web (checkpoint-1)"
+        in result.stdout
+    )
+    assert (
+        "Snapshot restored successfully."
+        in result.stdout
+    )
+    assert "Machine: web" in result.stdout
+    assert (
+        "Image: "
+        "pyrange-snapshots/cli-lab-web:checkpoint-1"
+        in result.stdout
+    )
+    assert (
+        "Image ID: sha256:snapshot123"
+        in result.stdout
+    )
+
+    mock_load_scenario.assert_called_once()
+    mock_restore_machine_snapshot.assert_called_once_with(
+        scenario,
+        machine_name="web",
+        snapshot_name="checkpoint-1",
+    )
+
+
+@patch("pyrange.cli.restore_machine_snapshot")
+@patch("pyrange.cli.load_scenario")
+def test_restore_unknown_machine_shows_clean_error(
+    mock_load_scenario,
+    mock_restore_machine_snapshot,
+) -> None:
+    scenario = make_test_scenario()
+    mock_load_scenario.return_value = scenario
+    mock_restore_machine_snapshot.side_effect = SnapshotError(
+        "Machine 'missing' is not defined "
+        "in scenario 'cli-lab'."
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "restore",
+            "scenario.yaml",
+            "missing",
+            "checkpoint-1",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert (
+        "Error: Snapshot error: "
+        "Machine 'missing' is not defined"
+        in result.stderr
+    )
+
+
+@patch("pyrange.cli.restore_machine_snapshot")
+@patch("pyrange.cli.load_scenario")
+def test_restore_invalid_name_shows_clean_error(
+    mock_load_scenario,
+    mock_restore_machine_snapshot,
+) -> None:
+    scenario = make_test_scenario()
+    mock_load_scenario.return_value = scenario
+    mock_restore_machine_snapshot.side_effect = ValueError(
+        "snapshot name must be a valid Docker tag"
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "restore",
+            "scenario.yaml",
+            "web",
+            "invalid/name",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert (
+        "Error: Snapshot error: "
+        "snapshot name must be a valid Docker tag"
+        in result.stderr
+    )
+
+
+@patch("pyrange.cli.restore_machine_snapshot")
+@patch("pyrange.cli.load_scenario")
+def test_restore_docker_error_shows_clean_message(
+    mock_load_scenario,
+    mock_restore_machine_snapshot,
+) -> None:
+    scenario = make_test_scenario()
+    mock_load_scenario.return_value = scenario
+    mock_restore_machine_snapshot.side_effect = (
+        DockerOperationError(
+            "No such image"
+        )
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "restore",
+            "scenario.yaml",
+            "web",
+            "checkpoint-1",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert (
+        "Error: Docker error: No such image"
         in result.stderr
     )

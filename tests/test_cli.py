@@ -7,6 +7,7 @@ from typer.testing import CliRunner
 from pyrange.cli import app
 from pyrange.engine import (
     DockerOperationError,
+    LabManagerError,
     MachineRestoreResult,
     MachineSnapshot,
     SnapshotError,
@@ -181,6 +182,31 @@ def test_start_docker_error_shows_clean_message(
     assert result.exit_code == 1
     assert (
         "Error: Docker error: failed to create network"
+        in result.stderr
+    )
+
+
+@patch("pyrange.cli.start_lab")
+@patch("pyrange.cli.load_scenario")
+def test_start_lab_manager_error_shows_clean_message(
+    mock_load_scenario,
+    mock_start_lab,
+) -> None:
+    scenario = make_test_scenario()
+    mock_load_scenario.return_value = scenario
+    mock_start_lab.side_effect = LabManagerError(
+        "Health check failed for machine 'web'"
+    )
+
+    result = runner.invoke(
+        app,
+        ["start", "scenario.yaml"],
+    )
+
+    assert result.exit_code == 1
+    assert (
+        "Error: Docker error: "
+        "Health check failed for machine 'web'"
         in result.stderr
     )
 

@@ -78,7 +78,11 @@ def start(path: Path) -> None:
     except ValidationError as exc:
         fail(f"invalid scenario: {exc}")
 
-    except (DockerUnavailableError, DockerOperationError) as exc:
+    except (
+        DockerUnavailableError,
+        DockerOperationError,
+        LabManagerError,
+    ) as exc:
         fail(f"Docker error: {exc}")
 
     typer.echo("Lab started successfully.")

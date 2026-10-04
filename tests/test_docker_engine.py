@@ -8,6 +8,7 @@ from pyrange.engine import (
     DockerOperationError,
     DockerUnavailableError,
     connect_container_to_network,
+    create_container_snapshot,
     execute_container_command,
     get_docker_server_version,
 )
@@ -500,4 +501,92 @@ def test_execute_container_command_rejects_empty_command() -> None:
             name="test-web",
             command=[],
             timeout_seconds=2.0,
+        )
+
+
+@patch("pyrange.engine.docker.subprocess.run")
+def test_create_container_snapshot_returns_image_id(
+    mock_run,
+) -> None:
+    mock_run.return_value = subprocess.CompletedProcess(
+        args=["docker"],
+        returncode=0,
+        stdout="sha256:snapshot123\n",
+        stderr="",
+    )
+
+    image_id = create_container_snapshot(
+        name="test-web",
+        image_ref="pyrange-snapshots/web:checkpoint-1",
+    )
+
+    assert image_id == "sha256:snapshot123"
+
+    mock_run.assert_called_once_with(
+        [
+            "docker",
+            "commit",
+            "test-web",
+            "pyrange-snapshots/web:checkpoint-1",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+
+@patch("pyrange.engine.docker.subprocess.run")
+def test_create_container_snapshot_raises_on_docker_error(
+    mock_run,
+) -> None:
+    mock_run.side_effect = subprocess.CalledProcessError(
+        returncode=1,
+        cmd=["docker", "commit"],
+        stderr="container not found",
+    )
+
+    with pytest.raises(
+        DockerOperationError,
+        match="container not found",
+    ):
+        create_container_snapshot(
+            name="test-web",
+            image_ref="pyrange-snapshots/web:checkpoint-1",
+        )
+
+
+@patch("pyrange.engine.docker.subprocess.run")
+def test_create_container_snapshot_rejects_empty_image_id(
+    mock_run,
+) -> None:
+    mock_run.return_value = subprocess.CompletedProcess(
+        args=["docker"],
+        returncode=0,
+        stdout="",
+        stderr="",
+    )
+
+    with pytest.raises(
+        DockerOperationError,
+        match="empty snapshot image ID",
+    ):
+        create_container_snapshot(
+            name="test-web",
+            image_ref="pyrange-snapshots/web:checkpoint-1",
+        )
+
+
+@patch("pyrange.engine.docker.subprocess.run")
+def test_create_container_snapshot_raises_when_cli_missing(
+    mock_run,
+) -> None:
+    mock_run.side_effect = FileNotFoundError
+
+    with pytest.raises(
+        DockerUnavailableError,
+        match="Docker CLI was not found",
+    ):
+        create_container_snapshot(
+            name="test-web",
+            image_ref="pyrange-snapshots/web:checkpoint-1",
         )

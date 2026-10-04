@@ -229,6 +229,43 @@ def execute_container_command(
     )
 
 
+def create_container_snapshot(
+    name: str,
+    image_ref: str,
+) -> str:
+    try:
+        result = subprocess.run(
+            [
+                "docker",
+                "commit",
+                name,
+                image_ref,
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except FileNotFoundError as exc:
+        raise DockerUnavailableError(
+            "Docker CLI was not found."
+        ) from exc
+    except subprocess.CalledProcessError as exc:
+        message = (
+            exc.stderr.strip()
+            or "Failed to create container snapshot."
+        )
+        raise DockerOperationError(message) from exc
+
+    image_id = result.stdout.strip()
+
+    if not image_id:
+        raise DockerOperationError(
+            "Docker returned an empty snapshot image ID."
+        )
+
+    return image_id
+
+
 def remove_container(name: str) -> None:
     try:
         subprocess.run(

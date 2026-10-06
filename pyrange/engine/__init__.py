@@ -37,6 +37,13 @@ from pyrange.engine.snapshot import (
     get_snapshot_image_ref,
     restore_machine_snapshot,
 )
+from pyrange.engine.status import (
+    LabStatus,
+    MachineInterfaceStatus,
+    MachineStatus,
+    NetworkStatus,
+    inspect_lab_status,
+)
 
 
 __all__ = [
@@ -47,9 +54,13 @@ __all__ = [
     "DockerUnavailableError",
     "HealthCheckResult",
     "LabManagerError",
+    "LabStatus",
+    "MachineInterfaceStatus",
     "MachineRestoreResult",
     "MachineSnapshot",
+    "MachineStatus",
     "NetworkRuntimeState",
+    "NetworkStatus",
     "SnapshotError",
     "connect_container_to_network",
     "create_container",
@@ -64,6 +75,7 @@ __all__ = [
     "get_lab_network_name",
     "get_snapshot_image_ref",
     "inspect_container_runtime",
+    "inspect_lab_status",
     "inspect_network_runtime",
     "remove_container",
     "remove_network",

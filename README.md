@@ -1,30 +1,33 @@
 # PyRange
 
-PyRange is a Python-based platform for defining, validating, and orchestrating reproducible cybersecurity labs with Docker.
+PyRange is a Python-based platform for defining, validating, orchestrating, inspecting, and recovering reproducible cybersecurity labs with Docker.
 
-Instead of manually creating Docker networks, containers, static addressing, health checks, and recovery points for every lab, PyRange allows an environment to be described as a declarative YAML scenario and managed through a command-line interface.
+Instead of manually creating Docker networks, containers, static addressing, health checks, recovery points, and runtime inspection workflows for every lab, PyRange allows an environment to be described as a declarative YAML scenario and managed through a command-line interface.
 
 > PyRange is intended for authorized cybersecurity labs, research environments, and educational use only.
 
 ## Current Version
 
-**v0.3.0 - Health Checks and Snapshots**
+**v0.4.0 - Runtime Status and Drift Detection**
 
-PyRange v0.3.0 extends the network orchestration introduced in v0.2.0 with machine readiness checks and Docker-backed snapshots.
+PyRange v0.4.0 extends the orchestration, health-check, and snapshot capabilities introduced in earlier releases with live runtime inspection and desired-versus-actual topology comparison.
 
-The v0.3.0 release adds:
+The v0.4.0 release adds:
 
-* Command-based machine health checks
-* Configurable health check retries, intervals, and timeouts
-* Health-gated lab startup
-* Automatic rollback when startup health validation fails
-* Named machine snapshots backed by Docker images
-* Snapshot preflight validation
-* Machine restoration from immutable Docker image IDs
-* Restoration of scenario-defined network topology and static IP addresses
-* Post-restore health validation
-* Snapshot and restore CLI commands
-* Real Docker snapshot/restore integration coverage
+* Read-only Docker runtime inspection
+* Container runtime state inspection
+* Docker network subnet inspection
+* Lab-level runtime status evaluation
+* Desired-versus-actual topology comparison
+* Detection of missing Docker resources
+* Detection of network subnet drift
+* Detection of missing machine interfaces
+* Detection of static IP drift
+* Detection of unexpected network attachments
+* Preservation of raw Docker container state
+* Lab classification as `running`, `stopped`, `partial`, or `drifted`
+* `pyrange status` CLI command
+* Real Docker runtime-status integration coverage
 
 ## Features
 
@@ -57,6 +60,21 @@ The v0.3.0 release adds:
 * Reverse-order resource cleanup
 * Managed-container labeling
 
+### Runtime Status and Drift Detection
+
+* Read-only inspection of Docker runtime state
+* Detection of missing expected networks
+* Detection of missing expected containers
+* Comparison of expected and actual Docker network subnets
+* Comparison of expected and actual container network membership
+* Comparison of expected and actual static IPv4 addresses
+* Detection of missing interfaces on existing containers
+* Detection of unexpected Docker network attachments
+* Preservation of raw Docker container status such as `running` or `exited`
+* Machine-level runtime classification
+* Lab-level runtime classification
+* Runtime inspection without modifying the lab
+
 ### Health Checks
 
 * Optional per-machine health checks
@@ -83,74 +101,78 @@ The v0.3.0 release adds:
 
 * Scenario inspection
 * Lab start and stop commands
+* Runtime status inspection
 * Snapshot and restore commands
 * Clean handling of scenario, Docker, orchestration, and snapshot errors
-* Unit coverage for validation, orchestration, health checks, snapshots, and CLI behavior
-* Real Docker integration coverage for lab lifecycle, segmented topology, and snapshot restoration
+* Unit coverage for validation, orchestration, runtime status, health checks, snapshots, and CLI behavior
+* Real Docker integration coverage for lab lifecycle, segmented topology, runtime status, and snapshot restoration
 
 ## Architecture
 
 ```text
-                         scenario.yaml
-                              |
-                              v
-                         YAML Loader
-                              |
-                              v
-                       ScenarioConfig
-                              |
-                              v
-                    Topology Validation
-                              |
-                 +------------+------------+
-                 |                         |
-                 v                         v
-            Lab Manager              Snapshot Engine
-                 |                         |
-                 |                         |
-                 +------------+------------+
-                              |
-                              v
-                        Docker Backend
-                              |
-              +---------------+---------------+
-              |               |               |
-              v               v               v
-           Networks        Containers      Docker Images
-              |               |               |
-              |               |               |
-              |               +-- docker exec |
-              |                               |
-              +-------- network connect       |
-                                              |
-                                  docker commit / inspect
-                                              |
-                                              v
-                                       Snapshot Images
+                             scenario.yaml
+                                  |
+                                  v
+                              YAML Loader
+                                  |
+                                  v
+                            ScenarioConfig
+                                  |
+                                  v
+                         Topology Validation
+                                  |
+              +-------------------+-------------------+
+              |                   |                   |
+              v                   v                   v
+         Lab Manager        Snapshot Engine     Status Engine
+              |                   |                   |
+              |                   |                   |
+              +-------------------+-------------------+
+                                  |
+                                  v
+                            Docker Backend
+                                  |
+            +---------------------+---------------------+
+            |                     |                     |
+            v                     v                     v
+         Networks             Containers            Images
+            |                     |                     |
+            |                     +-- docker exec       |
+            |                     |                     |
+            +-- network connect   +-- inspect runtime   |
+            |                                           |
+            +-- inspect subnet                  docker commit
+                                                        |
+                                                        v
+                                                 Snapshot Images
 
 
-                       Health Evaluator
-                              |
-                              v
-                    Container Command Check
-                              |
-               +--------------+--------------+
-               |              |              |
-               v              v              v
-            timeout        retries        exit code
+                         Health Evaluator
+                               |
+                               v
+                      Container Command Check
+                               |
+                +--------------+--------------+
+                |              |              |
+                v              v              v
+             timeout        retries        exit code
 ```
 
-PyRange separates scenario definition, validation, lab orchestration, health evaluation, snapshot management, and low-level Docker operations into independent components.
+PyRange separates scenario definition, validation, lab orchestration, runtime inspection, health evaluation, snapshot management, and low-level Docker operations into independent components.
 
 The scenario model represents the desired lab topology and optional machine health checks.
 
 The Lab Manager translates a validated scenario into Docker networks and containers.
 
-The Health Evaluator executes configured commands inside running containers and determines whether a machine is ready.
+The Docker backend provides both imperative lifecycle operations and read-only runtime inspection primitives.
+
+The Runtime Status Engine compares the scenario-defined desired state with actual Docker runtime state.
+
+The Health Evaluator executes configured commands inside running containers and determines whether a machine is ready during startup or restoration.
 
 The Snapshot Engine coordinates snapshot creation and restoration while reusing the same Docker backend and deterministic resource naming rules used by normal lab orchestration.
 
-This separation keeps future capabilities such as telemetry, scenario actions, detection experiments, status reporting, and scoring outside the core orchestration layer.
+This separation keeps future capabilities such as structured event logging, telemetry collection, scenario actions, detection experiments, and scoring outside the core orchestration layer.
 
 ## Requirements
 
@@ -158,7 +180,7 @@ This separation keeps future capabilities such as telemetry, scenario actions, d
 * Docker Desktop or Docker Engine
 * Git
 
-Docker must be running before starting a lab or running tests that require a real Docker Engine.
+Docker must be running before starting a lab, inspecting live runtime state, or running tests that require a real Docker Engine.
 
 ## Installation
 
@@ -296,6 +318,124 @@ Rejected configurations include:
 
 This keeps invalid topology and health configuration out of the Docker orchestration layer.
 
+## Runtime Status
+
+PyRange v0.4.0 introduces runtime inspection through:
+
+```bash
+pyrange status scenarios/segmented-lab.yaml
+```
+
+The status command is read-only.
+
+It loads the scenario, derives the expected deterministic Docker resource names, inspects Docker runtime state, and compares the actual resources against the scenario-defined desired state.
+
+It does not create, remove, restart, reconnect, or modify Docker resources.
+
+### Network Status
+
+Each scenario network is classified as one of:
+
+| State | Meaning |
+| --- | --- |
+| `matching` | The Docker network exists and its subnet matches the scenario. |
+| `missing` | The expected Docker network does not exist. |
+| `drifted` | The network exists but its runtime subnet configuration differs from the scenario. |
+
+For example:
+
+```text
+- public-net: matching
+    Runtime: pyrange-segmented-lab-public-net
+    Expected subnet: 172.28.20.0/24
+    Actual subnets: 172.28.20.0/24
+```
+
+A subnet mismatch is reported as drift:
+
+```text
+- public-net: drifted
+    Expected subnet: 172.28.20.0/24
+    Actual subnets: 172.28.99.0/24
+```
+
+### Machine Status
+
+Each scenario machine preserves the raw Docker container state while also receiving a PyRange runtime classification.
+
+Machine states are:
+
+| State | Meaning |
+| --- | --- |
+| `running` | The container exists, is running, and its expected network topology matches the scenario. |
+| `stopped` | The container exists and topology matches, but the Docker container state is not `running`. |
+| `missing` | The expected container does not exist. |
+| `drifted` | The container exists but its network membership or static addressing differs from the scenario. |
+
+For example, a container may be represented as:
+
+```text
+- web: stopped
+    Container state: exited
+```
+
+PyRange therefore preserves Docker's actual runtime state while exposing a higher-level machine classification.
+
+### Interface Status
+
+For every expected machine interface, PyRange compares:
+
+* Expected network membership
+* Actual network membership
+* Expected static IPv4 address
+* Actual Docker IPv4 address
+
+An expected interface may be:
+
+* `matching`
+* `missing`
+* `drifted`
+
+Example:
+
+```text
+- public-net: drifted
+    Expected IP: 172.28.20.10
+    Actual IP: 172.28.20.99
+```
+
+A missing expected network attachment is also considered topology drift for an existing container.
+
+### Unexpected Networks
+
+If an expected container is attached to a Docker network that is not declared for that machine in the scenario, PyRange records the attachment as unexpected.
+
+Example:
+
+```text
+Unexpected networks:
+  - temporary-debug-net
+```
+
+Unexpected network attachments cause the machine to be classified as `drifted`.
+
+### Lab Status
+
+The complete lab is classified as:
+
+| State | Meaning |
+| --- | --- |
+| `running` | All expected networks match and all expected machines are running with matching topology. |
+| `stopped` | All expected networks and machines are absent. |
+| `partial` | Some expected resources exist, but the lab is neither completely running nor completely absent, and no topology drift was detected. |
+| `drifted` | At least one network or machine has detected topology drift. |
+
+Drift takes precedence over other lab states.
+
+For example, a lab with one running machine and one missing machine is `partial`.
+
+A lab with an IP mismatch is `drifted`.
+
 ## Health Checks
 
 Health checks are optional and configured per machine.
@@ -402,6 +542,58 @@ Machines: 2
 pyrange start scenarios/segmented-lab.yaml
 ```
 
+### Inspect Runtime Status
+
+```bash
+pyrange status scenarios/segmented-lab.yaml
+```
+
+Example output when the lab is not running:
+
+```text
+Scenario: segmented-lab
+Status: stopped
+
+Networks:
+  - public-net: missing
+      Runtime: pyrange-segmented-lab-public-net
+      Expected subnet: 172.28.20.0/24
+      Actual subnets: -
+  - private-net: missing
+      Runtime: pyrange-segmented-lab-private-net
+      Expected subnet: 172.28.30.0/24
+      Actual subnets: -
+
+Machines:
+  - web: missing
+      Runtime: pyrange-segmented-lab-web
+      Container state: -
+      Interfaces:
+        - public-net: missing
+            Runtime network: pyrange-segmented-lab-public-net
+            Expected IP: 172.28.20.10
+            Actual IP: -
+
+  - analyst: missing
+      Runtime: pyrange-segmented-lab-analyst
+      Container state: -
+      Interfaces:
+        - public-net: missing
+            Runtime network: pyrange-segmented-lab-public-net
+            Expected IP: 172.28.20.20
+            Actual IP: -
+        - private-net: missing
+            Runtime network: pyrange-segmented-lab-private-net
+            Expected IP: 172.28.30.20
+            Actual IP: -
+```
+
+The command exits successfully for valid runtime states such as `running`, `stopped`, `partial`, and `drifted`.
+
+Those states describe the lab; they are not CLI failures.
+
+Scenario loading errors, validation failures, Docker unavailability, and Docker inspection errors are reported as command errors.
+
 ### Stop a Lab
 
 ```bash
@@ -486,6 +678,46 @@ If container creation, network attachment, startup, or health validation fails, 
 Rollback removes containers first and then networks in reverse creation order.
 
 When a lab is stopped normally, PyRange also removes its containers and networks.
+
+## Runtime Inspection Lifecycle
+
+Runtime status evaluation is independent of lab startup and shutdown.
+
+The inspection flow is:
+
+```text
+Load scenario
+      |
+      v
+Derive expected Docker resource names
+      |
+      v
+Inspect expected Docker networks
+      |
+      v
+Compare expected and actual subnets
+      |
+      v
+Inspect expected containers
+      |
+      v
+Read Docker container state
+      |
+      v
+Read network attachments and IP addresses
+      |
+      v
+Compare desired and actual topology
+      |
+      v
+Classify network, machine, and lab state
+```
+
+A missing expected Docker resource is treated as runtime information rather than an exceptional Docker failure.
+
+Operational Docker failures are reported separately through the Docker error hierarchy.
+
+Runtime inspection is intentionally read-only.
 
 ## Snapshots
 
@@ -631,6 +863,8 @@ pyrange-segmented-lab-web
 pyrange-segmented-lab-analyst
 ```
 
+Runtime inspection uses these same deterministic names to locate expected Docker resources.
+
 Snapshot images use a separate deterministic namespace:
 
 ```text
@@ -643,7 +877,7 @@ Managed containers are labeled with:
 pyrange.managed=true
 ```
 
-Deterministic naming makes orchestration predictable and provides a foundation for future resource discovery and management capabilities.
+Deterministic naming makes orchestration and runtime inspection predictable and provides a foundation for future resource discovery, telemetry, and management capabilities.
 
 ## Testing
 
@@ -653,7 +887,7 @@ Run the full test suite:
 pytest -v
 ```
 
-PyRange v0.3.0 currently contains **100 automated tests**.
+PyRange v0.4.0 currently contains **120 automated tests**.
 
 The suite covers:
 
@@ -666,12 +900,25 @@ The suite covers:
 * Health check retry semantics
 * Health check timeout behavior
 * Docker command execution
+* Docker container runtime inspection
+* Docker network runtime inspection
+* Invalid Docker inspection data handling
+* Exact-name runtime resource discovery
 * Health-gated startup
 * Health failure rollback
 * Lab Manager error handling through the CLI
 * Docker network lifecycle
 * Docker container lifecycle
 * Multi-network attachment
+* Runtime network subnet comparison
+* Runtime static IP comparison
+* Missing resource classification
+* Missing interface detection
+* Unexpected network detection
+* Machine runtime classification
+* Lab runtime classification
+* Runtime status CLI behavior
+* Runtime status CLI error handling
 * Docker image inspection
 * Snapshot image creation
 * Snapshot name validation
@@ -685,6 +932,7 @@ The suite covers:
 * CLI error handling
 * Real Docker lab lifecycle
 * Real Docker segmented multi-network topology
+* Real Docker runtime status inspection
 * Real Docker snapshot and restore behavior
 
 Tests that require a running Docker Engine use the `integration` marker.
@@ -695,11 +943,54 @@ Run only the integration tests with:
 pytest -v -m integration -rs
 ```
 
-PyRange v0.3.0 currently includes **3 real Docker integration tests**:
+PyRange v0.4.0 currently includes **4 real Docker integration tests**:
 
 1. Basic single-network lab lifecycle
 2. Segmented multi-network lab lifecycle and topology
-3. Snapshot creation and restoration
+3. Runtime status across real lab startup and shutdown
+4. Snapshot creation and restoration
+
+### Runtime Status Integration Test
+
+The runtime-status integration test performs a real Docker workflow:
+
+```text
+Create unique test scenario
+      |
+      v
+Inspect absent resources
+      |
+      v
+Verify lab = stopped
+      |
+      v
+Start real lab
+      |
+      v
+Inspect Docker networks and containers
+      |
+      v
+Verify topology = matching
+      |
+      v
+Verify lab = running
+      |
+      v
+Stop real lab
+      |
+      v
+Inspect resources again
+      |
+      v
+Verify lab = stopped
+      |
+      v
+Final cleanup
+```
+
+The test also verifies a real multi-network machine and its static IP assignments through the runtime status engine.
+
+### Snapshot Integration Test
 
 The snapshot/restore integration test performs the following real Docker workflow:
 
@@ -748,7 +1039,8 @@ pyrange/
 |   |   |-- docker.py
 |   |   |-- health.py
 |   |   |-- manager.py
-|   |   `-- snapshot.py
+|   |   |-- snapshot.py
+|   |   `-- status.py
 |   |
 |   `-- models/
 |       `-- scenario.py
@@ -760,7 +1052,8 @@ pyrange/
 |-- tests/
 |   |-- integration/
 |   |   |-- test_lab_lifecycle.py
-|   |   `-- test_multi_network_lifecycle.py
+|   |   |-- test_multi_network_lifecycle.py
+|   |   `-- test_runtime_status.py
 |   |
 |   |-- test_cli.py
 |   |-- test_docker_engine.py
@@ -769,7 +1062,9 @@ pyrange/
 |   |-- test_scenario.py
 |   |-- test_scenario_loader.py
 |   |-- test_snapshot.py
-|   `-- test_snapshot_integration.py
+|   |-- test_snapshot_integration.py
+|   |-- test_status.py
+|   `-- test_status_cli.py
 |
 |-- docs/
 |-- pyproject.toml
@@ -779,7 +1074,7 @@ pyrange/
 
 ## Current Limitations
 
-PyRange v0.3.0 focuses on reproducible Docker topology, machine readiness checks, and filesystem-oriented machine snapshots.
+PyRange v0.4.0 focuses on reproducible Docker topology, runtime topology inspection, machine readiness checks, and filesystem-oriented machine snapshots.
 
 Current limitations include:
 
@@ -788,6 +1083,13 @@ Current limitations include:
 * Health checks are command-based only
 * No custom machine startup command model
 * No persistent PyRange state database
+* Runtime status is evaluated on demand rather than continuously
+* No background monitoring daemon
+* Runtime status does not currently execute configured health checks
+* Runtime status focuses on expected scenario resources rather than performing a complete inventory of arbitrary extra Docker resources
+* Unexpected network attachments are detected only on expected scenario containers
+* No persistent runtime-status history
+* No structured event log
 * No persistent snapshot catalog
 * No snapshot listing command
 * No snapshot deletion command
@@ -797,7 +1099,6 @@ Current limitations include:
 * Container memory and live process state are not captured
 * Restore replaces the current container
 * Restore is not fully transactional after the original container has been removed
-* No dedicated lab status command
 * No telemetry collection
 * No scenario action engine
 * No detection integration
@@ -850,11 +1151,25 @@ These are explicit scope boundaries of the current release rather than hidden ca
 * [x] Restore CLI command
 * [x] Real Docker snapshot/restore integration coverage
 
+### v0.4 - Runtime Status and Drift Detection
+
+* [x] Docker container runtime inspection
+* [x] Docker network runtime inspection
+* [x] Read-only runtime status model
+* [x] Missing resource detection
+* [x] Network subnet drift detection
+* [x] Static IP drift detection
+* [x] Missing interface detection
+* [x] Unexpected network attachment detection
+* [x] Machine runtime classification
+* [x] Lab runtime classification
+* [x] Runtime status CLI command
+* [x] Real Docker runtime-status integration coverage
+
 ### Future Development
 
 Planned areas of development include:
 
-* Lab status and runtime inspection
 * Structured event logging
 * Telemetry collection
 * Scenario actions

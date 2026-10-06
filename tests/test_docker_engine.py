@@ -1,17 +1,22 @@
 import subprocess
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 import pytest
 
 from pyrange.engine import (
     ContainerCommandResult,
+    ContainerNetworkState,
+    ContainerRuntimeState,
     DockerOperationError,
     DockerUnavailableError,
+    NetworkRuntimeState,
     connect_container_to_network,
     create_container_snapshot,
     execute_container_command,
     get_docker_server_version,
     get_image_id,
+    inspect_container_runtime,
+    inspect_network_runtime,
 )
 
 
@@ -676,4 +681,323 @@ def test_get_image_id_raises_when_cli_missing(
     ):
         get_image_id(
             "pyrange-snapshots/web:checkpoint-1"
+        )
+
+
+@patch("pyrange.engine.docker.subprocess.run")
+def test_inspect_container_runtime_returns_state(
+    mock_run,
+) -> None:
+    mock_run.side_effect = [
+        subprocess.CompletedProcess(
+            args=["docker"],
+            returncode=0,
+            stdout=(
+                "other-container\n"
+                "pyrange-test-lab-web\n"
+            ),
+            stderr="",
+        ),
+        subprocess.CompletedProcess(
+            args=["docker"],
+            returncode=0,
+            stdout=(
+                "[{"
+                '"State":{"Status":"running"},'
+                '"NetworkSettings":{"Networks":{'
+                '"pyrange-test-lab-private":{'
+                '"IPAddress":"172.28.20.10"'
+                "},"
+                '"pyrange-test-lab-public":{'
+                '"IPAddress":"172.28.10.10"'
+                "}"
+                "}}"
+                "}]"
+            ),
+            stderr="",
+        ),
+    ]
+
+    result = inspect_container_runtime(
+        "pyrange-test-lab-web"
+    )
+
+    assert result == ContainerRuntimeState(
+        name="pyrange-test-lab-web",
+        status="running",
+        networks=(
+            ContainerNetworkState(
+                network_name=(
+                    "pyrange-test-lab-private"
+                ),
+                ip_address="172.28.20.10",
+            ),
+            ContainerNetworkState(
+                network_name=(
+                    "pyrange-test-lab-public"
+                ),
+                ip_address="172.28.10.10",
+            ),
+        ),
+    )
+
+    assert mock_run.call_args_list == [
+        call(
+            [
+                "docker",
+                "container",
+                "ls",
+                "--all",
+                "--format",
+                "{{.Names}}",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        ),
+        call(
+            [
+                "docker",
+                "container",
+                "inspect",
+                "pyrange-test-lab-web",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        ),
+    ]
+
+
+@patch("pyrange.engine.docker.subprocess.run")
+def test_inspect_container_runtime_returns_none_when_missing(
+    mock_run,
+) -> None:
+    mock_run.return_value = subprocess.CompletedProcess(
+        args=["docker"],
+        returncode=0,
+        stdout=(
+            "pyrange-test-lab-web-old\n"
+            "unrelated-container\n"
+        ),
+        stderr="",
+    )
+
+    result = inspect_container_runtime(
+        "pyrange-test-lab-web"
+    )
+
+    assert result is None
+
+    mock_run.assert_called_once_with(
+        [
+            "docker",
+            "container",
+            "ls",
+            "--all",
+            "--format",
+            "{{.Names}}",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+
+@patch("pyrange.engine.docker.subprocess.run")
+def test_inspect_container_runtime_raises_when_cli_missing(
+    mock_run,
+) -> None:
+    mock_run.side_effect = FileNotFoundError
+
+    with pytest.raises(
+        DockerUnavailableError,
+        match="Docker CLI was not found",
+    ):
+        inspect_container_runtime(
+            "pyrange-test-lab-web"
+        )
+
+
+@patch("pyrange.engine.docker.subprocess.run")
+def test_inspect_container_runtime_raises_on_inspect_error(
+    mock_run,
+) -> None:
+    mock_run.side_effect = [
+        subprocess.CompletedProcess(
+            args=["docker"],
+            returncode=0,
+            stdout="pyrange-test-lab-web\n",
+            stderr="",
+        ),
+        subprocess.CalledProcessError(
+            returncode=1,
+            cmd=["docker", "container", "inspect"],
+            stderr="container inspection failed",
+        ),
+    ]
+
+    with pytest.raises(
+        DockerOperationError,
+        match="container inspection failed",
+    ):
+        inspect_container_runtime(
+            "pyrange-test-lab-web"
+        )
+
+
+@patch("pyrange.engine.docker.subprocess.run")
+def test_inspect_container_runtime_rejects_invalid_data(
+    mock_run,
+) -> None:
+    mock_run.side_effect = [
+        subprocess.CompletedProcess(
+            args=["docker"],
+            returncode=0,
+            stdout="pyrange-test-lab-web\n",
+            stderr="",
+        ),
+        subprocess.CompletedProcess(
+            args=["docker"],
+            returncode=0,
+            stdout="not-json",
+            stderr="",
+        ),
+    ]
+
+    with pytest.raises(
+        DockerOperationError,
+        match="invalid inspection data",
+    ):
+        inspect_container_runtime(
+            "pyrange-test-lab-web"
+        )
+
+
+@patch("pyrange.engine.docker.subprocess.run")
+def test_inspect_network_runtime_returns_state(
+    mock_run,
+) -> None:
+    mock_run.side_effect = [
+        subprocess.CompletedProcess(
+            args=["docker"],
+            returncode=0,
+            stdout=(
+                "bridge\n"
+                "pyrange-test-lab-public\n"
+            ),
+            stderr="",
+        ),
+        subprocess.CompletedProcess(
+            args=["docker"],
+            returncode=0,
+            stdout=(
+                "[{"
+                '"IPAM":{"Config":['
+                '{"Subnet":"172.28.20.0/24"},'
+                '{"Subnet":"172.28.10.0/24"}'
+                "]}"
+                "}]"
+            ),
+            stderr="",
+        ),
+    ]
+
+    result = inspect_network_runtime(
+        "pyrange-test-lab-public"
+    )
+
+    assert result == NetworkRuntimeState(
+        name="pyrange-test-lab-public",
+        subnets=(
+            "172.28.10.0/24",
+            "172.28.20.0/24",
+        ),
+    )
+
+    assert mock_run.call_args_list == [
+        call(
+            [
+                "docker",
+                "network",
+                "ls",
+                "--format",
+                "{{.Name}}",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        ),
+        call(
+            [
+                "docker",
+                "network",
+                "inspect",
+                "pyrange-test-lab-public",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        ),
+    ]
+
+
+@patch("pyrange.engine.docker.subprocess.run")
+def test_inspect_network_runtime_returns_none_when_missing(
+    mock_run,
+) -> None:
+    mock_run.return_value = subprocess.CompletedProcess(
+        args=["docker"],
+        returncode=0,
+        stdout=(
+            "bridge\n"
+            "pyrange-test-lab-public-old\n"
+        ),
+        stderr="",
+    )
+
+    result = inspect_network_runtime(
+        "pyrange-test-lab-public"
+    )
+
+    assert result is None
+
+    mock_run.assert_called_once_with(
+        [
+            "docker",
+            "network",
+            "ls",
+            "--format",
+            "{{.Name}}",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+
+@patch("pyrange.engine.docker.subprocess.run")
+def test_inspect_network_runtime_raises_on_inspect_error(
+    mock_run,
+) -> None:
+    mock_run.side_effect = [
+        subprocess.CompletedProcess(
+            args=["docker"],
+            returncode=0,
+            stdout="pyrange-test-lab-public\n",
+            stderr="",
+        ),
+        subprocess.CalledProcessError(
+            returncode=1,
+            cmd=["docker", "network", "inspect"],
+            stderr="network inspection failed",
+        ),
+    ]
+
+    with pytest.raises(
+        DockerOperationError,
+        match="network inspection failed",
+    ):
+        inspect_network_runtime(
+            "pyrange-test-lab-public"
         )

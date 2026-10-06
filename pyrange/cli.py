@@ -7,6 +7,10 @@ from pyrange.core import load_scenario
 from pyrange.engine import (
     DockerOperationError,
     DockerUnavailableError,
+    EventRecorder,
+    EventSinkError,
+    ExecutionContext,
+    JsonlEventSink,
     LabManagerError,
     SnapshotError,
     create_machine_snapshot,
@@ -26,6 +30,39 @@ app = typer.Typer(
 def fail(message: str) -> None:
     typer.echo(f"Error: {message}", err=True)
     raise typer.Exit(code=1)
+
+
+def _create_event_recorder(
+    *,
+    scenario_name: str,
+    operation: str,
+    event_log: Path | None,
+) -> EventRecorder | None:
+    if event_log is None:
+        return None
+
+    context = ExecutionContext(
+        scenario=scenario_name,
+        operation=operation,
+    )
+
+    return EventRecorder(
+        context,
+        JsonlEventSink(event_log),
+    )
+
+
+def _show_event_context(
+    recorder: EventRecorder | None,
+    event_log: Path | None,
+) -> None:
+    if recorder is None or event_log is None:
+        return
+
+    typer.echo(
+        f"Run ID: {recorder.context.run_id}"
+    )
+    typer.echo(f"Event log: {event_log}")
 
 
 @app.callback()
@@ -155,19 +192,51 @@ def status(path: Path) -> None:
 
 
 @app.command()
-def start(path: Path) -> None:
+def start(
+    path: Path,
+    event_log: Path | None = typer.Option(
+        None,
+        "--event-log",
+        help=(
+            "Append structured execution events "
+            "to a JSONL file."
+        ),
+    ),
+) -> None:
     """Create and start a PyRange lab from a scenario file."""
     try:
         scenario = load_scenario(path)
 
-        typer.echo(f"Starting lab: {scenario.name}")
-        start_lab(scenario)
+        recorder = _create_event_recorder(
+            scenario_name=scenario.name,
+            operation="start",
+            event_log=event_log,
+        )
+
+        typer.echo(
+            f"Starting lab: {scenario.name}"
+        )
+        _show_event_context(
+            recorder,
+            event_log,
+        )
+
+        if recorder is None:
+            start_lab(scenario)
+        else:
+            start_lab(
+                scenario,
+                recorder=recorder,
+            )
 
     except FileNotFoundError:
         fail(f"scenario file not found: {path}")
 
     except ValidationError as exc:
         fail(f"invalid scenario: {exc}")
+
+    except EventSinkError as exc:
+        fail(f"Event log error: {exc}")
 
     except (
         DockerUnavailableError,
@@ -180,19 +249,51 @@ def start(path: Path) -> None:
 
 
 @app.command()
-def stop(path: Path) -> None:
+def stop(
+    path: Path,
+    event_log: Path | None = typer.Option(
+        None,
+        "--event-log",
+        help=(
+            "Append structured execution events "
+            "to a JSONL file."
+        ),
+    ),
+) -> None:
     """Stop and remove a PyRange lab."""
     try:
         scenario = load_scenario(path)
 
-        typer.echo(f"Stopping lab: {scenario.name}")
-        stop_lab(scenario)
+        recorder = _create_event_recorder(
+            scenario_name=scenario.name,
+            operation="stop",
+            event_log=event_log,
+        )
+
+        typer.echo(
+            f"Stopping lab: {scenario.name}"
+        )
+        _show_event_context(
+            recorder,
+            event_log,
+        )
+
+        if recorder is None:
+            stop_lab(scenario)
+        else:
+            stop_lab(
+                scenario,
+                recorder=recorder,
+            )
 
     except FileNotFoundError:
         fail(f"scenario file not found: {path}")
 
     except ValidationError as exc:
         fail(f"invalid scenario: {exc}")
+
+    except EventSinkError as exc:
+        fail(f"Event log error: {exc}")
 
     except (
         DockerUnavailableError,
@@ -209,21 +310,47 @@ def snapshot(
     path: Path,
     machine: str,
     snapshot_name: str,
+    event_log: Path | None = typer.Option(
+        None,
+        "--event-log",
+        help=(
+            "Append structured execution events "
+            "to a JSONL file."
+        ),
+    ),
 ) -> None:
     """Create a snapshot of a machine in a running lab."""
     try:
         scenario = load_scenario(path)
 
+        recorder = _create_event_recorder(
+            scenario_name=scenario.name,
+            operation="snapshot",
+            event_log=event_log,
+        )
+
         typer.echo(
             f"Creating snapshot: "
             f"{machine} ({snapshot_name})"
         )
-
-        result = create_machine_snapshot(
-            scenario,
-            machine_name=machine,
-            snapshot_name=snapshot_name,
+        _show_event_context(
+            recorder,
+            event_log,
         )
+
+        if recorder is None:
+            result = create_machine_snapshot(
+                scenario,
+                machine_name=machine,
+                snapshot_name=snapshot_name,
+            )
+        else:
+            result = create_machine_snapshot(
+                scenario,
+                machine_name=machine,
+                snapshot_name=snapshot_name,
+                recorder=recorder,
+            )
 
     except FileNotFoundError:
         fail(f"scenario file not found: {path}")
@@ -231,7 +358,13 @@ def snapshot(
     except ValidationError as exc:
         fail(f"invalid scenario: {exc}")
 
-    except (SnapshotError, ValueError) as exc:
+    except EventSinkError as exc:
+        fail(f"Event log error: {exc}")
+
+    except (
+        SnapshotError,
+        ValueError,
+    ) as exc:
         fail(f"Snapshot error: {exc}")
 
     except (
@@ -251,21 +384,47 @@ def restore(
     path: Path,
     machine: str,
     snapshot_name: str,
+    event_log: Path | None = typer.Option(
+        None,
+        "--event-log",
+        help=(
+            "Append structured execution events "
+            "to a JSONL file."
+        ),
+    ),
 ) -> None:
     """Restore a machine from a snapshot."""
     try:
         scenario = load_scenario(path)
 
+        recorder = _create_event_recorder(
+            scenario_name=scenario.name,
+            operation="restore",
+            event_log=event_log,
+        )
+
         typer.echo(
             f"Restoring snapshot: "
             f"{machine} ({snapshot_name})"
         )
-
-        result = restore_machine_snapshot(
-            scenario,
-            machine_name=machine,
-            snapshot_name=snapshot_name,
+        _show_event_context(
+            recorder,
+            event_log,
         )
+
+        if recorder is None:
+            result = restore_machine_snapshot(
+                scenario,
+                machine_name=machine,
+                snapshot_name=snapshot_name,
+            )
+        else:
+            result = restore_machine_snapshot(
+                scenario,
+                machine_name=machine,
+                snapshot_name=snapshot_name,
+                recorder=recorder,
+            )
 
     except FileNotFoundError:
         fail(f"scenario file not found: {path}")
@@ -273,7 +432,13 @@ def restore(
     except ValidationError as exc:
         fail(f"invalid scenario: {exc}")
 
-    except (SnapshotError, ValueError) as exc:
+    except EventSinkError as exc:
+        fail(f"Event log error: {exc}")
+
+    except (
+        SnapshotError,
+        ValueError,
+    ) as exc:
         fail(f"Snapshot error: {exc}")
 
     except (

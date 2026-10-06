@@ -1,3 +1,4 @@
+import json
 import subprocess
 from dataclasses import dataclass
 
@@ -24,7 +25,10 @@ def get_docker_server_version() -> str:
             "Docker CLI was not found."
         ) from exc
     except subprocess.CalledProcessError as exc:
-        message = exc.stderr.strip() or "Docker Engine is unavailable."
+        message = (
+            exc.stderr.strip()
+            or "Docker Engine is unavailable."
+        )
         raise DockerUnavailableError(message) from exc
 
     version = result.stdout.strip()
@@ -46,6 +50,253 @@ class ContainerCommandResult:
     exit_code: int
     stdout: str
     stderr: str
+
+
+@dataclass(frozen=True)
+class ContainerNetworkState:
+    network_name: str
+    ip_address: str
+
+
+@dataclass(frozen=True)
+class ContainerRuntimeState:
+    name: str
+    status: str
+    networks: tuple[ContainerNetworkState, ...]
+
+
+@dataclass(frozen=True)
+class NetworkRuntimeState:
+    name: str
+    subnets: tuple[str, ...]
+
+
+def _run_docker_query(
+    command: list[str],
+    fallback_error: str,
+) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except FileNotFoundError as exc:
+        raise DockerUnavailableError(
+            "Docker CLI was not found."
+        ) from exc
+    except subprocess.CalledProcessError as exc:
+        message = exc.stderr.strip() or fallback_error
+        raise DockerOperationError(message) from exc
+
+
+def _load_single_inspect_object(
+    raw_output: str,
+    resource_description: str,
+) -> dict[str, object]:
+    try:
+        payload = json.loads(raw_output)
+    except json.JSONDecodeError as exc:
+        raise DockerOperationError(
+            "Docker returned invalid inspection data for "
+            f"{resource_description}."
+        ) from exc
+
+    if (
+        not isinstance(payload, list)
+        or len(payload) != 1
+        or not isinstance(payload[0], dict)
+    ):
+        raise DockerOperationError(
+            "Docker returned invalid inspection data for "
+            f"{resource_description}."
+        )
+
+    return payload[0]
+
+
+def inspect_container_runtime(
+    name: str,
+) -> ContainerRuntimeState | None:
+    list_result = _run_docker_query(
+        [
+            "docker",
+            "container",
+            "ls",
+            "--all",
+            "--format",
+            "{{.Names}}",
+        ],
+        "Failed to list Docker containers.",
+    )
+
+    container_names = {
+        line.strip()
+        for line in list_result.stdout.splitlines()
+        if line.strip()
+    }
+
+    if name not in container_names:
+        return None
+
+    inspect_result = _run_docker_query(
+        [
+            "docker",
+            "container",
+            "inspect",
+            name,
+        ],
+        f"Failed to inspect Docker container '{name}'.",
+    )
+
+    payload = _load_single_inspect_object(
+        inspect_result.stdout,
+        f"container '{name}'",
+    )
+
+    state_data = payload.get("State")
+    network_settings = payload.get("NetworkSettings")
+
+    if (
+        not isinstance(state_data, dict)
+        or not isinstance(network_settings, dict)
+    ):
+        raise DockerOperationError(
+            "Docker returned invalid inspection data for "
+            f"container '{name}'."
+        )
+
+    status = state_data.get("Status")
+    networks_data = network_settings.get("Networks")
+
+    if (
+        not isinstance(status, str)
+        or not status
+        or not isinstance(networks_data, dict)
+    ):
+        raise DockerOperationError(
+            "Docker returned invalid inspection data for "
+            f"container '{name}'."
+        )
+
+    networks: list[ContainerNetworkState] = []
+
+    for network_name, attachment in sorted(
+        networks_data.items()
+    ):
+        if (
+            not isinstance(network_name, str)
+            or not isinstance(attachment, dict)
+        ):
+            raise DockerOperationError(
+                "Docker returned invalid inspection data for "
+                f"container '{name}'."
+            )
+
+        ip_address = attachment.get("IPAddress")
+
+        if not isinstance(ip_address, str):
+            raise DockerOperationError(
+                "Docker returned invalid inspection data for "
+                f"container '{name}'."
+            )
+
+        networks.append(
+            ContainerNetworkState(
+                network_name=network_name,
+                ip_address=ip_address,
+            )
+        )
+
+    return ContainerRuntimeState(
+        name=name,
+        status=status,
+        networks=tuple(networks),
+    )
+
+
+def inspect_network_runtime(
+    name: str,
+) -> NetworkRuntimeState | None:
+    list_result = _run_docker_query(
+        [
+            "docker",
+            "network",
+            "ls",
+            "--format",
+            "{{.Name}}",
+        ],
+        "Failed to list Docker networks.",
+    )
+
+    network_names = {
+        line.strip()
+        for line in list_result.stdout.splitlines()
+        if line.strip()
+    }
+
+    if name not in network_names:
+        return None
+
+    inspect_result = _run_docker_query(
+        [
+            "docker",
+            "network",
+            "inspect",
+            name,
+        ],
+        f"Failed to inspect Docker network '{name}'.",
+    )
+
+    payload = _load_single_inspect_object(
+        inspect_result.stdout,
+        f"network '{name}'",
+    )
+
+    ipam_data = payload.get("IPAM")
+
+    if not isinstance(ipam_data, dict):
+        raise DockerOperationError(
+            "Docker returned invalid inspection data for "
+            f"network '{name}'."
+        )
+
+    config_data = ipam_data.get("Config")
+
+    if not isinstance(config_data, list):
+        raise DockerOperationError(
+            "Docker returned invalid inspection data for "
+            f"network '{name}'."
+        )
+
+    subnets: list[str] = []
+
+    for config in config_data:
+        if not isinstance(config, dict):
+            raise DockerOperationError(
+                "Docker returned invalid inspection data for "
+                f"network '{name}'."
+            )
+
+        subnet = config.get("Subnet")
+
+        if subnet is None:
+            continue
+
+        if not isinstance(subnet, str):
+            raise DockerOperationError(
+                "Docker returned invalid inspection data for "
+                f"network '{name}'."
+            )
+
+        if subnet:
+            subnets.append(subnet)
+
+    return NetworkRuntimeState(
+        name=name,
+        subnets=tuple(sorted(subnets)),
+    )
 
 
 def get_image_id(image_ref: str) -> str:
@@ -107,7 +358,10 @@ def create_network(name: str, subnet: str) -> str:
             "Docker CLI was not found."
         ) from exc
     except subprocess.CalledProcessError as exc:
-        message = exc.stderr.strip() or "Failed to create Docker network."
+        message = (
+            exc.stderr.strip()
+            or "Failed to create Docker network."
+        )
         raise DockerOperationError(message) from exc
 
     network_id = result.stdout.strip()
@@ -133,7 +387,10 @@ def remove_network(name: str) -> None:
             "Docker CLI was not found."
         ) from exc
     except subprocess.CalledProcessError as exc:
-        message = exc.stderr.strip() or "Failed to remove Docker network."
+        message = (
+            exc.stderr.strip()
+            or "Failed to remove Docker network."
+        )
         raise DockerOperationError(message) from exc
 
 
@@ -197,7 +454,10 @@ def create_container(
             "Docker CLI was not found."
         ) from exc
     except subprocess.CalledProcessError as exc:
-        message = exc.stderr.strip() or "Failed to create Docker container."
+        message = (
+            exc.stderr.strip()
+            or "Failed to create Docker container."
+        )
         raise DockerOperationError(message) from exc
 
     container_id = result.stdout.strip()
@@ -223,7 +483,10 @@ def start_container(name: str) -> None:
             "Docker CLI was not found."
         ) from exc
     except subprocess.CalledProcessError as exc:
-        message = exc.stderr.strip() or "Failed to start Docker container."
+        message = (
+            exc.stderr.strip()
+            or "Failed to start Docker container."
+        )
         raise DockerOperationError(message) from exc
 
 
@@ -315,5 +578,8 @@ def remove_container(name: str) -> None:
             "Docker CLI was not found."
         ) from exc
     except subprocess.CalledProcessError as exc:
-        message = exc.stderr.strip() or "Failed to remove Docker container."
+        message = (
+            exc.stderr.strip()
+            or "Failed to remove Docker container."
+        )
         raise DockerOperationError(message) from exc

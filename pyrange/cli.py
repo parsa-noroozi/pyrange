@@ -10,10 +10,12 @@ from pyrange.engine import (
     LabManagerError,
     SnapshotError,
     create_machine_snapshot,
+    inspect_lab_status,
     restore_machine_snapshot,
     start_lab,
     stop_lab,
 )
+
 
 app = typer.Typer(
     name="pyrange",
@@ -61,6 +63,95 @@ def inspect(path: Path) -> None:
             typer.echo(
                 f"      {interface.network} @ {interface.ip}"
             )
+
+
+@app.command()
+def status(path: Path) -> None:
+    """Inspect the runtime status of a PyRange lab."""
+    try:
+        scenario = load_scenario(path)
+        result = inspect_lab_status(scenario)
+
+    except FileNotFoundError:
+        fail(f"scenario file not found: {path}")
+
+    except ValidationError as exc:
+        fail(f"invalid scenario: {exc}")
+
+    except (
+        DockerUnavailableError,
+        DockerOperationError,
+    ) as exc:
+        fail(f"Docker error: {exc}")
+
+    typer.echo(f"Scenario: {result.scenario_name}")
+    typer.echo(f"Status: {result.state}")
+    typer.echo("")
+    typer.echo("Networks:")
+
+    for network in result.networks:
+        actual_subnets = (
+            ", ".join(network.actual_subnets)
+            or "-"
+        )
+
+        typer.echo(
+            f"  - {network.name}: {network.state}"
+        )
+        typer.echo(
+            f"      Runtime: {network.runtime_name}"
+        )
+        typer.echo(
+            f"      Expected subnet: "
+            f"{network.expected_subnet}"
+        )
+        typer.echo(
+            f"      Actual subnets: {actual_subnets}"
+        )
+
+    typer.echo("")
+    typer.echo("Machines:")
+
+    for machine in result.machines:
+        container_state = machine.container_state or "-"
+
+        typer.echo(
+            f"  - {machine.name}: {machine.state}"
+        )
+        typer.echo(
+            f"      Runtime: {machine.runtime_name}"
+        )
+        typer.echo(
+            f"      Container state: {container_state}"
+        )
+        typer.echo("      Interfaces:")
+
+        for interface in machine.interfaces:
+            actual_ip = interface.actual_ip or "-"
+
+            typer.echo(
+                f"        - {interface.network}: "
+                f"{interface.state}"
+            )
+            typer.echo(
+                f"            Runtime network: "
+                f"{interface.runtime_network}"
+            )
+            typer.echo(
+                f"            Expected IP: "
+                f"{interface.expected_ip}"
+            )
+            typer.echo(
+                f"            Actual IP: {actual_ip}"
+            )
+
+        if machine.unexpected_networks:
+            typer.echo("      Unexpected networks:")
+
+            for network_name in machine.unexpected_networks:
+                typer.echo(
+                    f"        - {network_name}"
+                )
 
 
 @app.command()

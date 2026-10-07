@@ -66,6 +66,17 @@ class ContainerRuntimeState:
 
 
 @dataclass(frozen=True)
+class ContainerStatsSnapshot:
+    name: str
+    cpu_percent: str
+    memory_usage: str
+    memory_percent: str
+    network_io: str
+    block_io: str
+    pids: int
+
+
+@dataclass(frozen=True)
 class NetworkRuntimeState:
     name: str
     subnets: tuple[str, ...]
@@ -213,6 +224,117 @@ def inspect_container_runtime(
         name=name,
         status=status,
         networks=tuple(networks),
+    )
+
+
+def get_container_stats(
+    name: str,
+) -> ContainerStatsSnapshot:
+    result = _run_docker_query(
+        [
+            "docker",
+            "stats",
+            "--no-stream",
+            "--format",
+            "{{json .}}",
+            name,
+        ],
+        f"Failed to collect Docker stats for "
+        f"container '{name}'.",
+    )
+
+    lines = [
+        line.strip()
+        for line in result.stdout.splitlines()
+        if line.strip()
+    ]
+
+    if len(lines) != 1:
+        raise DockerOperationError(
+            "Docker returned invalid stats data for "
+            f"container '{name}'."
+        )
+
+    try:
+        payload = json.loads(lines[0])
+    except json.JSONDecodeError as exc:
+        raise DockerOperationError(
+            "Docker returned invalid stats data for "
+            f"container '{name}'."
+        ) from exc
+
+    if not isinstance(payload, dict):
+        raise DockerOperationError(
+            "Docker returned invalid stats data for "
+            f"container '{name}'."
+        )
+
+    returned_name = payload.get("Name")
+    cpu_percent = payload.get("CPUPerc")
+    memory_usage = payload.get("MemUsage")
+    memory_percent = payload.get("MemPerc")
+    network_io = payload.get("NetIO")
+    block_io = payload.get("BlockIO")
+    pids_raw = payload.get("PIDs")
+
+    string_fields = (
+        returned_name,
+        cpu_percent,
+        memory_usage,
+        memory_percent,
+        network_io,
+        block_io,
+    )
+
+    if any(
+        not isinstance(value, str)
+        or not value.strip()
+        for value in string_fields
+    ):
+        raise DockerOperationError(
+            "Docker returned invalid stats data for "
+            f"container '{name}'."
+        )
+
+    if returned_name != name:
+        raise DockerOperationError(
+            "Docker returned invalid stats data for "
+            f"container '{name}'."
+        )
+
+    if isinstance(pids_raw, bool):
+        raise DockerOperationError(
+            "Docker returned invalid stats data for "
+            f"container '{name}'."
+        )
+
+    if isinstance(pids_raw, int):
+        pids = pids_raw
+    elif (
+        isinstance(pids_raw, str)
+        and pids_raw.strip().isdigit()
+    ):
+        pids = int(pids_raw)
+    else:
+        raise DockerOperationError(
+            "Docker returned invalid stats data for "
+            f"container '{name}'."
+        )
+
+    if pids < 0:
+        raise DockerOperationError(
+            "Docker returned invalid stats data for "
+            f"container '{name}'."
+        )
+
+    return ContainerStatsSnapshot(
+        name=returned_name,
+        cpu_percent=cpu_percent,
+        memory_usage=memory_usage,
+        memory_percent=memory_percent,
+        network_io=network_io,
+        block_io=block_io,
+        pids=pids,
     )
 
 

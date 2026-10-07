@@ -11,8 +11,13 @@ from pyrange.engine import (
     EventSinkError,
     ExecutionContext,
     JsonlEventSink,
+    JsonlTelemetrySink,
     LabManagerError,
     SnapshotError,
+    TelemetryCollectionError,
+    TelemetryRecorder,
+    TelemetrySinkError,
+    collect_container_telemetry,
     create_machine_snapshot,
     inspect_lab_status,
     restore_machine_snapshot,
@@ -189,6 +194,73 @@ def status(path: Path) -> None:
                 typer.echo(
                     f"        - {network_name}"
                 )
+
+
+@app.command()
+def telemetry(
+    path: Path,
+    telemetry_log: Path = typer.Option(
+        ...,
+        "--telemetry-log",
+        help=(
+            "Append structured telemetry "
+            "to a JSONL file."
+        ),
+    ),
+) -> None:
+    """Collect point-in-time telemetry from a PyRange lab."""
+    try:
+        scenario = load_scenario(path)
+
+        context = ExecutionContext(
+            scenario=scenario.name,
+            operation="telemetry",
+        )
+
+        recorder = TelemetryRecorder(
+            context,
+            JsonlTelemetrySink(telemetry_log),
+        )
+
+        typer.echo(
+            f"Collecting telemetry: {scenario.name}"
+        )
+        typer.echo(
+            f"Run ID: {recorder.context.run_id}"
+        )
+        typer.echo(
+            f"Telemetry log: {telemetry_log}"
+        )
+
+        records = collect_container_telemetry(
+            scenario,
+            recorder,
+        )
+
+    except FileNotFoundError:
+        fail(f"scenario file not found: {path}")
+
+    except ValidationError as exc:
+        fail(f"invalid scenario: {exc}")
+
+    except TelemetrySinkError as exc:
+        fail(f"Telemetry log error: {exc}")
+
+    except TelemetryCollectionError as exc:
+        fail(f"Telemetry collection error: {exc}")
+
+    except (
+        DockerUnavailableError,
+        DockerOperationError,
+    ) as exc:
+        fail(f"Docker error: {exc}")
+
+    typer.echo(
+        f"Telemetry records: {len(records)}"
+    )
+    typer.echo(
+        "Telemetry collection completed successfully."
+    )
 
 
 @app.command()

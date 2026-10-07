@@ -5,7 +5,7 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
-from typing import Annotated, Literal, Protocol
+from typing import Literal, Protocol
 from uuid import UUID, uuid4
 
 from pydantic import (
@@ -13,45 +13,22 @@ from pydantic import (
     ConfigDict,
     Field,
     JsonValue,
-    StringConstraints,
     field_validator,
 )
 
+from pyrange.engine.execution import (
+    ExecutionContext,
+    NonEmptyString,
+    StructuredName,
+)
 
-NonEmptyString = Annotated[
-    str,
-    StringConstraints(
-        strip_whitespace=True,
-        min_length=1,
-    ),
-]
 
-EventName = Annotated[
-    str,
-    StringConstraints(
-        strip_whitespace=True,
-        min_length=1,
-        pattern=r"^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$",
-    ),
-]
+EventName = StructuredName
 
 EventOutcome = Literal[
     "success",
     "failure",
 ]
-
-
-class ExecutionContext(BaseModel):
-    """Identify one PyRange operation execution."""
-
-    model_config = ConfigDict(
-        extra="forbid",
-        frozen=True,
-    )
-
-    run_id: UUID = Field(default_factory=uuid4)
-    scenario: NonEmptyString
-    operation: EventName
 
 
 class EventResource(BaseModel):

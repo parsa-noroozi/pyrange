@@ -26,9 +26,9 @@ from pyrange.engine.events import (
     EventSink,
     EventSinkError,
     EventWriteError,
-    ExecutionContext,
     JsonlEventSink,
 )
+from pyrange.engine.execution import ExecutionContext
 from pyrange.engine.health import (
     HealthCheckResult,
     evaluate_health_check,

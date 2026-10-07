@@ -55,6 +55,16 @@ from pyrange.engine.status import (
     NetworkStatus,
     inspect_lab_status,
 )
+from pyrange.engine.telemetry import (
+    JsonlTelemetrySink,
+    TelemetryRecord,
+    TelemetryRecorder,
+    TelemetryResource,
+    TelemetrySerializationError,
+    TelemetrySink,
+    TelemetrySinkError,
+    TelemetryWriteError,
+)
 
 
 __all__ = [
@@ -73,6 +83,7 @@ __all__ = [
     "ExecutionContext",
     "HealthCheckResult",
     "JsonlEventSink",
+    "JsonlTelemetrySink",
     "LabManagerError",
     "LabStatus",
     "MachineInterfaceStatus",
@@ -82,6 +93,13 @@ __all__ = [
     "NetworkRuntimeState",
     "NetworkStatus",
     "SnapshotError",
+    "TelemetryRecord",
+    "TelemetryRecorder",
+    "TelemetryResource",
+    "TelemetrySerializationError",
+    "TelemetrySink",
+    "TelemetrySinkError",
+    "TelemetryWriteError",
     "connect_container_to_network",
     "create_container",
     "create_container_snapshot",

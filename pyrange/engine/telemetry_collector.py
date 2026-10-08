@@ -5,10 +5,15 @@ from pydantic import JsonValue
 from pyrange.engine.docker import (
     ContainerRuntimeState,
     ContainerStatsSnapshot,
+    NetworkRuntimeState,
     get_container_stats,
     inspect_container_runtime,
+    inspect_network_runtime,
 )
-from pyrange.engine.manager import get_lab_container_name
+from pyrange.engine.manager import (
+    get_lab_container_name,
+    get_lab_network_name,
+)
 from pyrange.engine.telemetry import (
     TelemetryRecord,
     TelemetryRecorder,
@@ -32,7 +37,25 @@ def _validate_recorder(
         )
 
 
-def _runtime_data(
+def _network_runtime_data(
+    runtime_name: str,
+    runtime: NetworkRuntimeState | None,
+) -> dict[str, JsonValue]:
+    if runtime is None:
+        return {
+            "runtime_name": runtime_name,
+            "present": False,
+            "subnets": [],
+        }
+
+    return {
+        "runtime_name": runtime_name,
+        "present": True,
+        "subnets": list(runtime.subnets),
+    }
+
+
+def _container_runtime_data(
     runtime_name: str,
     runtime: ContainerRuntimeState | None,
 ) -> dict[str, JsonValue]:
@@ -74,17 +97,42 @@ def _stats_data(
     }
 
 
-def collect_container_telemetry(
+def _collect_network_telemetry(
     scenario: ScenarioConfig,
     recorder: TelemetryRecorder,
-) -> tuple[TelemetryRecord, ...]:
-    """Collect point-in-time container telemetry for a lab."""
+) -> list[TelemetryRecord]:
+    records: list[TelemetryRecord] = []
 
-    _validate_recorder(
-        scenario,
-        recorder,
-    )
+    for network in scenario.networks:
+        runtime_name = get_lab_network_name(
+            scenario,
+            network,
+        )
 
+        runtime = inspect_network_runtime(
+            runtime_name
+        )
+
+        record = recorder.record(
+            "network.runtime",
+            resource=TelemetryResource(
+                type="network",
+                name=network.name,
+            ),
+            data=_network_runtime_data(
+                runtime_name,
+                runtime,
+            ),
+        )
+        records.append(record)
+
+    return records
+
+
+def _collect_container_telemetry(
+    scenario: ScenarioConfig,
+    recorder: TelemetryRecorder,
+) -> list[TelemetryRecord]:
     records: list[TelemetryRecord] = []
 
     for machine in scenario.machines:
@@ -103,7 +151,7 @@ def collect_container_telemetry(
                 type="machine",
                 name=machine.name,
             ),
-            data=_runtime_data(
+            data=_container_runtime_data(
                 runtime_name,
                 runtime,
             ),
@@ -129,5 +177,69 @@ def collect_container_telemetry(
             data=_stats_data(stats),
         )
         records.append(stats_record)
+
+    return records
+
+
+def collect_network_telemetry(
+    scenario: ScenarioConfig,
+    recorder: TelemetryRecorder,
+) -> tuple[TelemetryRecord, ...]:
+    """Collect point-in-time network telemetry for a lab."""
+
+    _validate_recorder(
+        scenario,
+        recorder,
+    )
+
+    return tuple(
+        _collect_network_telemetry(
+            scenario,
+            recorder,
+        )
+    )
+
+
+def collect_container_telemetry(
+    scenario: ScenarioConfig,
+    recorder: TelemetryRecorder,
+) -> tuple[TelemetryRecord, ...]:
+    """Collect point-in-time container telemetry for a lab."""
+
+    _validate_recorder(
+        scenario,
+        recorder,
+    )
+
+    return tuple(
+        _collect_container_telemetry(
+            scenario,
+            recorder,
+        )
+    )
+
+
+def collect_lab_telemetry(
+    scenario: ScenarioConfig,
+    recorder: TelemetryRecorder,
+) -> tuple[TelemetryRecord, ...]:
+    """Collect point-in-time runtime telemetry for a lab."""
+
+    _validate_recorder(
+        scenario,
+        recorder,
+    )
+
+    records = _collect_network_telemetry(
+        scenario,
+        recorder,
+    )
+
+    records.extend(
+        _collect_container_telemetry(
+            scenario,
+            recorder,
+        )
+    )
 
     return tuple(records)

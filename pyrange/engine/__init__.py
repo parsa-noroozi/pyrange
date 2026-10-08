@@ -70,6 +70,8 @@ from pyrange.engine.telemetry import (
 from pyrange.engine.telemetry_collector import (
     TelemetryCollectionError,
     collect_container_telemetry,
+    collect_lab_telemetry,
+    collect_network_telemetry,
 )
 
 
@@ -109,6 +111,8 @@ __all__ = [
     "TelemetrySinkError",
     "TelemetryWriteError",
     "collect_container_telemetry",
+    "collect_lab_telemetry",
+    "collect_network_telemetry",
     "connect_container_to_network",
     "create_container",
     "create_container_snapshot",

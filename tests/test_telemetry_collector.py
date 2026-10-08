@@ -8,6 +8,7 @@ from pyrange.engine import (
     ContainerStatsSnapshot,
     DockerOperationError,
     ExecutionContext,
+    NetworkRuntimeState,
     TelemetryRecord,
     TelemetryRecorder,
     TelemetryWriteError,
@@ -15,6 +16,8 @@ from pyrange.engine import (
 from pyrange.engine.telemetry_collector import (
     TelemetryCollectionError,
     collect_container_telemetry,
+    collect_lab_telemetry,
+    collect_network_telemetry,
 )
 from pyrange.models import (
     MachineConfig,
@@ -497,3 +500,239 @@ def test_collect_container_telemetry_allows_shared_execution_operation(
     assert records[0].run_id == recorder.context.run_id
 
     mock_stats.assert_not_called()
+
+
+@patch(
+    "pyrange.engine.telemetry_collector."
+    "inspect_network_runtime"
+)
+def test_collect_network_telemetry_records_existing_and_missing_networks(
+    mock_inspect_network,
+    scenario: ScenarioConfig,
+) -> None:
+    mock_inspect_network.side_effect = [
+        NetworkRuntimeState(
+            name=(
+                "pyrange-telemetry-lab-public-net"
+            ),
+            subnets=("172.28.10.0/24",),
+        ),
+        None,
+    ]
+
+    sink = MemoryTelemetrySink()
+    recorder = TelemetryRecorder(
+        ExecutionContext(
+            scenario="telemetry-lab",
+            operation="telemetry",
+        ),
+        sink,
+    )
+
+    records = collect_network_telemetry(
+        scenario,
+        recorder,
+    )
+
+    assert records == tuple(sink.records)
+
+    assert [
+        record.sequence
+        for record in records
+    ] == [
+        1,
+        2,
+    ]
+
+    assert [
+        record.telemetry_type
+        for record in records
+    ] == [
+        "network.runtime",
+        "network.runtime",
+    ]
+
+    assert records[0].resource is not None
+    assert records[0].resource.type == "network"
+    assert records[0].resource.name == "public-net"
+
+    assert records[0].data == {
+        "runtime_name": (
+            "pyrange-telemetry-lab-public-net"
+        ),
+        "present": True,
+        "subnets": [
+            "172.28.10.0/24",
+        ],
+    }
+
+    assert records[1].resource is not None
+    assert records[1].resource.type == "network"
+    assert records[1].resource.name == "private-net"
+
+    assert records[1].data == {
+        "runtime_name": (
+            "pyrange-telemetry-lab-private-net"
+        ),
+        "present": False,
+        "subnets": [],
+    }
+
+    assert mock_inspect_network.call_args_list == [
+        call(
+            "pyrange-telemetry-lab-public-net"
+        ),
+        call(
+            "pyrange-telemetry-lab-private-net"
+        ),
+    ]
+
+
+@patch(
+    "pyrange.engine.telemetry_collector."
+    "get_container_stats"
+)
+@patch(
+    "pyrange.engine.telemetry_collector."
+    "inspect_container_runtime"
+)
+@patch(
+    "pyrange.engine.telemetry_collector."
+    "inspect_network_runtime"
+)
+def test_collect_lab_telemetry_orders_networks_before_containers(
+    mock_inspect_network,
+    mock_inspect_container,
+    mock_stats,
+    scenario: ScenarioConfig,
+) -> None:
+    scenario = scenario.model_copy(
+        update={
+            "machines": [
+                scenario.machines[0],
+            ]
+        }
+    )
+
+    mock_inspect_network.side_effect = [
+        NetworkRuntimeState(
+            name=(
+                "pyrange-telemetry-lab-public-net"
+            ),
+            subnets=("172.28.10.0/24",),
+        ),
+        NetworkRuntimeState(
+            name=(
+                "pyrange-telemetry-lab-private-net"
+            ),
+            subnets=("172.28.20.0/24",),
+        ),
+    ]
+
+    mock_inspect_container.return_value = (
+        ContainerRuntimeState(
+            name="pyrange-telemetry-lab-web",
+            status="running",
+            networks=(),
+        )
+    )
+
+    mock_stats.return_value = (
+        ContainerStatsSnapshot(
+            name="pyrange-telemetry-lab-web",
+            cpu_percent="0.10%",
+            memory_usage="10MiB / 1GiB",
+            memory_percent="1.00%",
+            network_io="1kB / 2kB",
+            block_io="0B / 0B",
+            pids=5,
+        )
+    )
+
+    sink = MemoryTelemetrySink()
+    recorder = TelemetryRecorder(
+        ExecutionContext(
+            scenario="telemetry-lab",
+            operation="telemetry",
+        ),
+        sink,
+    )
+
+    records = collect_lab_telemetry(
+        scenario,
+        recorder,
+    )
+
+    assert records == tuple(sink.records)
+
+    assert [
+        record.sequence
+        for record in records
+    ] == [
+        1,
+        2,
+        3,
+        4,
+    ]
+
+    assert [
+        record.telemetry_type
+        for record in records
+    ] == [
+        "network.runtime",
+        "network.runtime",
+        "container.runtime",
+        "container.stats",
+    ]
+
+    assert [
+        record.resource.name
+        for record in records
+        if record.resource is not None
+    ] == [
+        "public-net",
+        "private-net",
+        "web",
+        "web",
+    ]
+
+
+@patch(
+    "pyrange.engine.telemetry_collector."
+    "inspect_container_runtime"
+)
+@patch(
+    "pyrange.engine.telemetry_collector."
+    "inspect_network_runtime"
+)
+def test_collect_lab_telemetry_stops_on_network_inspection_failure(
+    mock_inspect_network,
+    mock_inspect_container,
+    scenario: ScenarioConfig,
+) -> None:
+    mock_inspect_network.side_effect = (
+        DockerOperationError(
+            "network inspection failed"
+        )
+    )
+
+    sink = MemoryTelemetrySink()
+    recorder = TelemetryRecorder(
+        ExecutionContext(
+            scenario="telemetry-lab",
+            operation="telemetry",
+        ),
+        sink,
+    )
+
+    with pytest.raises(
+        DockerOperationError,
+        match="network inspection failed",
+    ):
+        collect_lab_telemetry(
+            scenario,
+            recorder,
+        )
+
+    assert sink.records == []
+    mock_inspect_container.assert_not_called()

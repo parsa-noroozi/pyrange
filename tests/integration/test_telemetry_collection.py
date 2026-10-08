@@ -34,7 +34,7 @@ def docker_resource_exists(
 
 
 @pytest.mark.integration
-def test_cli_telemetry_collects_real_container_observations(
+def test_cli_telemetry_collects_real_lab_observations(
     tmp_path: Path,
 ) -> None:
     try:
@@ -115,7 +115,7 @@ machines:
             for line in lines
         ]
 
-        assert len(records) == 2
+        assert len(records) == 3
 
         assert all(
             record["schema_version"] == 1
@@ -152,7 +152,7 @@ machines:
         )
 
         assert (
-            "Telemetry records: 2"
+            "Telemetry records: 3"
             in result.stdout
         )
 
@@ -162,6 +162,7 @@ machines:
         ] == [
             1,
             2,
+            3,
         ]
 
         telemetry_ids = [
@@ -171,32 +172,49 @@ machines:
 
         assert len(
             set(telemetry_ids)
-        ) == 2
+        ) == 3
 
         assert [
             record["telemetry_type"]
             for record in records
         ] == [
+            "network.runtime",
             "container.runtime",
             "container.stats",
         ]
 
-        expected_resource = {
+        network_record = records[0]
+        runtime_record = records[1]
+        stats_record = records[2]
+
+        assert network_record["resource"] == {
+            "type": "network",
+            "name": "lab-net",
+        }
+
+        network_data = network_record["data"]
+
+        assert network_data[
+            "runtime_name"
+        ] == network_names[0]
+        assert network_data["present"] is True
+        assert network_data["subnets"] == [
+            "10.254.251.0/28"
+        ]
+
+        expected_machine_resource = {
             "type": "machine",
             "name": "web",
         }
 
-        runtime_record = records[0]
-        stats_record = records[1]
-
         assert (
             runtime_record["resource"]
-            == expected_resource
+            == expected_machine_resource
         )
 
         assert (
             stats_record["resource"]
-            == expected_resource
+            == expected_machine_resource
         )
 
         runtime_data = runtime_record["data"]

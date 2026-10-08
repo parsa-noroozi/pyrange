@@ -45,7 +45,7 @@ def make_test_scenario() -> ScenarioConfig:
     )
 
 
-@patch("pyrange.cli.collect_container_telemetry")
+@patch("pyrange.cli.collect_lab_telemetry")
 @patch("pyrange.cli.load_scenario")
 def test_telemetry_command(
     mock_load_scenario,
@@ -127,7 +127,7 @@ def test_telemetry_missing_file_shows_clean_error(
     )
 
 
-@patch("pyrange.cli.collect_container_telemetry")
+@patch("pyrange.cli.collect_lab_telemetry")
 @patch("pyrange.cli.load_scenario")
 def test_telemetry_docker_error_shows_clean_message(
     mock_load_scenario,
@@ -162,7 +162,7 @@ def test_telemetry_docker_error_shows_clean_message(
     )
 
 
-@patch("pyrange.cli.collect_container_telemetry")
+@patch("pyrange.cli.collect_lab_telemetry")
 @patch("pyrange.cli.load_scenario")
 def test_telemetry_collection_error_shows_clean_message(
     mock_load_scenario,
@@ -201,18 +201,18 @@ def test_telemetry_collection_error_shows_clean_message(
 
 @patch(
     "pyrange.engine.telemetry_collector."
-    "inspect_container_runtime"
+    "inspect_network_runtime"
 )
 @patch("pyrange.cli.load_scenario")
 def test_telemetry_log_write_failure_shows_clean_error(
     mock_load_scenario,
-    mock_inspect,
+    mock_inspect_network,
     tmp_path: Path,
 ) -> None:
     mock_load_scenario.return_value = (
         make_test_scenario()
     )
-    mock_inspect.return_value = None
+    mock_inspect_network.return_value = None
 
     telemetry_log = (
         tmp_path

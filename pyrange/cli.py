@@ -17,7 +17,7 @@ from pyrange.engine import (
     TelemetryCollectionError,
     TelemetryRecorder,
     TelemetrySinkError,
-    collect_container_telemetry,
+    collect_lab_telemetry,
     create_machine_snapshot,
     inspect_lab_status,
     restore_machine_snapshot,
@@ -232,7 +232,7 @@ def telemetry(
             f"Telemetry log: {telemetry_log}"
         )
 
-        records = collect_container_telemetry(
+        records = collect_lab_telemetry(
             scenario,
             recorder,
         )

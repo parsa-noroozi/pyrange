@@ -7,12 +7,14 @@ from pyrange.engine import (
     ContainerCommandResult,
     ContainerNetworkState,
     ContainerRuntimeState,
+    ContainerStatsSnapshot,
     DockerOperationError,
     DockerUnavailableError,
     NetworkRuntimeState,
     connect_container_to_network,
     create_container_snapshot,
     execute_container_command,
+    get_container_stats,
     get_docker_server_version,
     get_image_id,
     inspect_container_runtime,
@@ -1000,4 +1002,185 @@ def test_inspect_network_runtime_raises_on_inspect_error(
     ):
         inspect_network_runtime(
             "pyrange-test-lab-public"
+        )
+
+
+@patch("pyrange.engine.docker.subprocess.run")
+def test_get_container_stats_returns_snapshot(
+    mock_run,
+) -> None:
+    mock_run.return_value = subprocess.CompletedProcess(
+        args=["docker"],
+        returncode=0,
+        stdout=(
+            '{"Name":"pyrange-test-lab-web",'
+            '"CPUPerc":"0.15%",'
+            '"MemUsage":"12.3MiB / 1GiB",'
+            '"MemPerc":"1.20%",'
+            '"NetIO":"1.2kB / 900B",'
+            '"BlockIO":"0B / 4.1kB",'
+            '"PIDs":"7"}\n'
+        ),
+        stderr="",
+    )
+
+    result = get_container_stats(
+        "pyrange-test-lab-web"
+    )
+
+    assert result == ContainerStatsSnapshot(
+        name="pyrange-test-lab-web",
+        cpu_percent="0.15%",
+        memory_usage="12.3MiB / 1GiB",
+        memory_percent="1.20%",
+        network_io="1.2kB / 900B",
+        block_io="0B / 4.1kB",
+        pids=7,
+    )
+
+    mock_run.assert_called_once_with(
+        [
+            "docker",
+            "stats",
+            "--no-stream",
+            "--format",
+            "{{json .}}",
+            "pyrange-test-lab-web",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+
+@patch("pyrange.engine.docker.subprocess.run")
+def test_get_container_stats_raises_when_cli_missing(
+    mock_run,
+) -> None:
+    mock_run.side_effect = FileNotFoundError
+
+    with pytest.raises(
+        DockerUnavailableError,
+        match="Docker CLI was not found",
+    ):
+        get_container_stats(
+            "pyrange-test-lab-web"
+        )
+
+
+@patch("pyrange.engine.docker.subprocess.run")
+def test_get_container_stats_raises_on_docker_error(
+    mock_run,
+) -> None:
+    mock_run.side_effect = subprocess.CalledProcessError(
+        returncode=1,
+        cmd=["docker", "stats"],
+        stderr="container does not exist",
+    )
+
+    with pytest.raises(
+        DockerOperationError,
+        match="container does not exist",
+    ):
+        get_container_stats(
+            "pyrange-test-lab-web"
+        )
+
+
+@patch("pyrange.engine.docker.subprocess.run")
+def test_get_container_stats_rejects_invalid_json(
+    mock_run,
+) -> None:
+    mock_run.return_value = subprocess.CompletedProcess(
+        args=["docker"],
+        returncode=0,
+        stdout="not-json\n",
+        stderr="",
+    )
+
+    with pytest.raises(
+        DockerOperationError,
+        match="invalid stats data",
+    ):
+        get_container_stats(
+            "pyrange-test-lab-web"
+        )
+
+
+@patch("pyrange.engine.docker.subprocess.run")
+def test_get_container_stats_rejects_missing_fields(
+    mock_run,
+) -> None:
+    mock_run.return_value = subprocess.CompletedProcess(
+        args=["docker"],
+        returncode=0,
+        stdout=(
+            '{"Name":"pyrange-test-lab-web",'
+            '"CPUPerc":"0.15%"}\n'
+        ),
+        stderr="",
+    )
+
+    with pytest.raises(
+        DockerOperationError,
+        match="invalid stats data",
+    ):
+        get_container_stats(
+            "pyrange-test-lab-web"
+        )
+
+
+@patch("pyrange.engine.docker.subprocess.run")
+def test_get_container_stats_rejects_invalid_pids(
+    mock_run,
+) -> None:
+    mock_run.return_value = subprocess.CompletedProcess(
+        args=["docker"],
+        returncode=0,
+        stdout=(
+            '{"Name":"pyrange-test-lab-web",'
+            '"CPUPerc":"0.15%",'
+            '"MemUsage":"12.3MiB / 1GiB",'
+            '"MemPerc":"1.20%",'
+            '"NetIO":"1.2kB / 900B",'
+            '"BlockIO":"0B / 4.1kB",'
+            '"PIDs":"not-a-number"}\n'
+        ),
+        stderr="",
+    )
+
+    with pytest.raises(
+        DockerOperationError,
+        match="invalid stats data",
+    ):
+        get_container_stats(
+            "pyrange-test-lab-web"
+        )
+
+
+@patch("pyrange.engine.docker.subprocess.run")
+def test_get_container_stats_rejects_fractional_pids(
+    mock_run,
+) -> None:
+    mock_run.return_value = subprocess.CompletedProcess(
+        args=["docker"],
+        returncode=0,
+        stdout=(
+            '{"Name":"pyrange-test-lab-web",'
+            '"CPUPerc":"0.15%",'
+            '"MemUsage":"12.3MiB / 1GiB",'
+            '"MemPerc":"1.20%",'
+            '"NetIO":"1.2kB / 900B",'
+            '"BlockIO":"0B / 4.1kB",'
+            '"PIDs":7.5}\n'
+        ),
+        stderr="",
+    )
+
+    with pytest.raises(
+        DockerOperationError,
+        match="invalid stats data",
+    ):
+        get_container_stats(
+            "pyrange-test-lab-web"
         )

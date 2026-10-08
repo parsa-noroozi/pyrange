@@ -23,28 +23,23 @@ from pyrange.engine.execution import (
 )
 
 
-EventName = StructuredName
-
-EventOutcome = Literal[
-    "success",
-    "failure",
-]
+TelemetryName = StructuredName
 
 
-class EventResource(BaseModel):
-    """Identify the resource associated with an event."""
+class TelemetryResource(BaseModel):
+    """Identify the resource associated with telemetry."""
 
     model_config = ConfigDict(
         extra="forbid",
         frozen=True,
     )
 
-    type: EventName
+    type: TelemetryName
     name: NonEmptyString
 
 
-class EventRecord(BaseModel):
-    """A versioned structured event emitted during an execution."""
+class TelemetryRecord(BaseModel):
+    """A versioned telemetry observation for one execution."""
 
     model_config = ConfigDict(
         extra="forbid",
@@ -52,16 +47,15 @@ class EventRecord(BaseModel):
     )
 
     schema_version: Literal[1] = 1
-    event_id: UUID
+    telemetry_id: UUID
     run_id: UUID
     sequence: int = Field(ge=1)
     timestamp: datetime
     scenario: NonEmptyString
-    operation: EventName
-    event_type: EventName
-    outcome: EventOutcome | None = None
-    resource: EventResource | None = None
-    attributes: dict[str, JsonValue] = Field(
+    operation: StructuredName
+    telemetry_type: TelemetryName
+    resource: TelemetryResource | None = None
+    data: dict[str, JsonValue] = Field(
         default_factory=dict
     )
 
@@ -82,30 +76,32 @@ class EventRecord(BaseModel):
         return value.astimezone(timezone.utc)
 
 
-class EventSink(Protocol):
-    """Destination for structured events."""
+class TelemetrySink(Protocol):
+    """Destination for structured telemetry."""
 
     def write(
         self,
-        event: EventRecord,
+        record: TelemetryRecord,
     ) -> None:
         ...
 
 
-class EventSinkError(RuntimeError):
-    """Base error for event sink failures."""
+class TelemetrySinkError(RuntimeError):
+    """Base error for telemetry sink failures."""
 
 
-class EventSerializationError(EventSinkError):
-    """Raised when an event cannot be serialized."""
+class TelemetrySerializationError(
+    TelemetrySinkError
+):
+    """Raised when telemetry cannot be serialized."""
 
 
-class EventWriteError(EventSinkError):
-    """Raised when an event cannot be persisted."""
+class TelemetryWriteError(TelemetrySinkError):
+    """Raised when telemetry cannot be persisted."""
 
 
-class JsonlEventSink:
-    """Append structured events to a JSON Lines file."""
+class JsonlTelemetrySink:
+    """Append telemetry records to a JSON Lines file."""
 
     def __init__(
         self,
@@ -115,9 +111,9 @@ class JsonlEventSink:
 
     def write(
         self,
-        event: EventRecord,
+        record: TelemetryRecord,
     ) -> None:
-        payload = event.model_dump(mode="json")
+        payload = record.model_dump(mode="json")
 
         try:
             line = json.dumps(
@@ -127,9 +123,9 @@ class JsonlEventSink:
                 allow_nan=False,
             )
         except (TypeError, ValueError) as exc:
-            raise EventSerializationError(
-                f"Failed to serialize event "
-                f"'{event.event_id}': {exc}"
+            raise TelemetrySerializationError(
+                f"Failed to serialize telemetry "
+                f"'{record.telemetry_id}': {exc}"
             ) from exc
 
         try:
@@ -142,8 +138,8 @@ class JsonlEventSink:
                 handle.write("\n")
                 handle.flush()
         except OSError as exc:
-            raise EventWriteError(
-                f"Failed to write event log "
+            raise TelemetryWriteError(
+                f"Failed to write telemetry log "
                 f"'{self.path}': {exc}"
             ) from exc
 
@@ -152,53 +148,57 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-class EventRecorder:
-    """Create ordered events for one execution."""
+class TelemetryRecorder:
+    """Create ordered telemetry for one execution."""
 
     def __init__(
         self,
         context: ExecutionContext,
-        sink: EventSink,
+        sink: TelemetrySink,
         *,
         clock: Callable[[], datetime] = _utc_now,
-        event_id_factory: Callable[[], UUID] = uuid4,
+        telemetry_id_factory: Callable[
+            [], UUID
+        ] = uuid4,
     ) -> None:
         self.context = context
         self.sink = sink
         self._clock = clock
-        self._event_id_factory = event_id_factory
+        self._telemetry_id_factory = (
+            telemetry_id_factory
+        )
         self._sequence = 0
         self._lock = Lock()
 
-    def emit(
+    def record(
         self,
-        event_type: str,
+        telemetry_type: str,
         *,
-        outcome: EventOutcome | None = None,
-        resource: EventResource | None = None,
-        attributes: dict[str, JsonValue] | None = None,
-    ) -> EventRecord:
+        resource: TelemetryResource | None = None,
+        data: dict[str, JsonValue] | None = None,
+    ) -> TelemetryRecord:
         with self._lock:
             sequence = self._sequence + 1
 
-            event = EventRecord(
-                event_id=self._event_id_factory(),
+            record = TelemetryRecord(
+                telemetry_id=(
+                    self._telemetry_id_factory()
+                ),
                 run_id=self.context.run_id,
                 sequence=sequence,
                 timestamp=self._clock(),
                 scenario=self.context.scenario,
                 operation=self.context.operation,
-                event_type=event_type,
-                outcome=outcome,
+                telemetry_type=telemetry_type,
                 resource=resource,
-                attributes=(
+                data=(
                     {}
-                    if attributes is None
-                    else attributes
+                    if data is None
+                    else data
                 ),
             )
 
-            self.sink.write(event)
+            self.sink.write(record)
             self._sequence = sequence
 
-            return event
+            return record

@@ -1,7 +1,13 @@
+from pyrange.engine.artifacts import (
+    ArtifactError,
+    RunArtifacts,
+    prepare_run_artifacts,
+)
 from pyrange.engine.docker import (
     ContainerCommandResult,
     ContainerNetworkState,
     ContainerRuntimeState,
+    ContainerStatsSnapshot,
     DockerOperationError,
     DockerUnavailableError,
     NetworkRuntimeState,
@@ -10,6 +16,7 @@ from pyrange.engine.docker import (
     create_container_snapshot,
     create_network,
     execute_container_command,
+    get_container_stats,
     get_docker_server_version,
     get_image_id,
     inspect_container_runtime,
@@ -26,9 +33,9 @@ from pyrange.engine.events import (
     EventSink,
     EventSinkError,
     EventWriteError,
-    ExecutionContext,
     JsonlEventSink,
 )
+from pyrange.engine.execution import ExecutionContext
 from pyrange.engine.health import (
     HealthCheckResult,
     evaluate_health_check,
@@ -55,12 +62,30 @@ from pyrange.engine.status import (
     NetworkStatus,
     inspect_lab_status,
 )
+from pyrange.engine.telemetry import (
+    JsonlTelemetrySink,
+    TelemetryRecord,
+    TelemetryRecorder,
+    TelemetryResource,
+    TelemetrySerializationError,
+    TelemetrySink,
+    TelemetrySinkError,
+    TelemetryWriteError,
+)
+from pyrange.engine.telemetry_collector import (
+    TelemetryCollectionError,
+    collect_container_telemetry,
+    collect_lab_telemetry,
+    collect_network_telemetry,
+)
 
 
 __all__ = [
+    "ArtifactError",
     "ContainerCommandResult",
     "ContainerNetworkState",
     "ContainerRuntimeState",
+    "ContainerStatsSnapshot",
     "DockerOperationError",
     "DockerUnavailableError",
     "EventRecord",
@@ -73,6 +98,7 @@ __all__ = [
     "ExecutionContext",
     "HealthCheckResult",
     "JsonlEventSink",
+    "JsonlTelemetrySink",
     "LabManagerError",
     "LabStatus",
     "MachineInterfaceStatus",
@@ -81,7 +107,19 @@ __all__ = [
     "MachineStatus",
     "NetworkRuntimeState",
     "NetworkStatus",
+    "RunArtifacts",
     "SnapshotError",
+    "TelemetryCollectionError",
+    "TelemetryRecord",
+    "TelemetryRecorder",
+    "TelemetryResource",
+    "TelemetrySerializationError",
+    "TelemetrySink",
+    "TelemetrySinkError",
+    "TelemetryWriteError",
+    "collect_container_telemetry",
+    "collect_lab_telemetry",
+    "collect_network_telemetry",
     "connect_container_to_network",
     "create_container",
     "create_container_snapshot",
@@ -89,6 +127,7 @@ __all__ = [
     "create_network",
     "evaluate_health_check",
     "execute_container_command",
+    "get_container_stats",
     "get_docker_server_version",
     "get_image_id",
     "get_lab_container_name",
@@ -97,6 +136,7 @@ __all__ = [
     "inspect_container_runtime",
     "inspect_lab_status",
     "inspect_network_runtime",
+    "prepare_run_artifacts",
     "remove_container",
     "remove_network",
     "restore_machine_snapshot",

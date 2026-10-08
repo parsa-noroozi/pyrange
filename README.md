@@ -10,35 +10,28 @@ PyRange is evolving toward a reproducible cybersecurity experimentation platform
 
 ## Current Version
 
-**v0.5.0 - Structured Events and Execution Context**
+**v0.6.0 - Telemetry Collection and Run Artifacts**
 
-PyRange v0.5.0 adds a structured execution-event layer on top of the orchestration, health-check, snapshot, and runtime-inspection capabilities introduced in earlier releases.
+PyRange v0.6.0 adds a structured, point-in-time telemetry layer on top of the execution-context and observability foundations introduced in v0.5.
 
-The release establishes a machine-readable execution history for important lab operations while preserving the existing orchestration architecture.
+The release keeps telemetry separate from control-plane events: events describe what an instrumented operation did, while telemetry records describe observed Docker runtime state. Both can use the same `ExecutionContext` and `run_id` model for correlation.
 
-The v0.5.0 release adds:
+The v0.6.0 release adds:
 
-* Per-operation execution contexts
-* UUID-based `run_id` correlation
-* UUID-based event identities
-* Ordered per-run event sequences
-* UTC timestamps
-* Versioned structured event records
-* JSON-compatible event attributes
-* Resource-aware event metadata
-* Append-only JSONL event persistence
-* Event-sink abstraction through a protocol
-* Structured lab startup events
-* Structured lab shutdown events
-* Startup rollback events
-* Health-check outcome events
-* Snapshot lifecycle events
-* Restore lifecycle events
-* Explicit event-logging failure semantics
-* Protection against event failures masking primary operational failures
-* `--event-log` support for `start`, `stop`, `snapshot`, and `restore`
-* CLI display of execution `run_id`
-* Real Docker end-to-end structured-event integration coverage
+* A shared `ExecutionContext` foundation reusable across events and telemetry
+* Versioned structured telemetry records with UUID identities, ordered sequences, UTC timestamps, resource references, and JSON-compatible data
+* A telemetry sink protocol and strict append-only JSONL telemetry persistence
+* Read-only Docker container runtime telemetry
+* Point-in-time Docker container statistics for running containers
+* Read-only Docker network runtime telemetry
+* Deterministic lab-wide telemetry ordering
+* Explicit `pyrange telemetry` CLI collection
+* Direct `--telemetry-log` output for caller-managed JSONL files
+* Run-scoped `--artifact-dir` output under `<artifact-root>/<run_id>/telemetry.jsonl`
+* Explicit artifact-directory collision and creation errors
+* Controlled collection boundaries with no background daemon, packet capture, container log capture, or implicit telemetry collection
+* Real Docker end-to-end telemetry integration coverage
+* Strict failure propagation for Docker inspection, telemetry persistence, and artifact preparation
 
 ## Features
 
@@ -130,6 +123,28 @@ The v0.5.0 release adds:
 * Structured snapshot and restore events
 * Snapshot and restore CLI commands
 
+### Telemetry Collection and Run Artifacts
+
+* Shared execution context and `run_id` correlation
+* Versioned telemetry record schema
+* UUID `telemetry_id` for every telemetry record
+* Monotonic sequence numbers within one telemetry recorder
+* Timezone-aware UTC timestamps
+* Structured telemetry resource references
+* JSON-compatible telemetry data
+* Strict JSON serialization
+* Append-only JSONL telemetry persistence
+* Explicit telemetry sink failures
+* Read-only network runtime observations
+* Read-only container runtime observations
+* Container statistics for running containers
+* Missing-resource observations represented without mutating the lab
+* Deterministic collection order: scenario networks first, then scenario machines
+* Lab-wide collection through a single execution context
+* Direct caller-managed telemetry logs with `--telemetry-log`
+* Run-scoped telemetry artifacts with `--artifact-dir`
+* Explicit, opt-in point-in-time collection boundaries
+
 ### CLI and Testing
 
 * Scenario inspection
@@ -137,120 +152,114 @@ The v0.5.0 release adds:
 * Runtime status inspection
 * Snapshot and restore commands
 * Optional JSONL event logging
+* Point-in-time telemetry collection
+* Direct telemetry-log output or run-scoped artifact output
 * Execution `run_id` display
-* Clean handling of scenario, Docker, orchestration, snapshot, and event-log errors
-* Unit coverage for validation, orchestration, events, runtime status, health checks, snapshots, and CLI behavior
-* Real Docker integration coverage for lab lifecycle, segmented topology, runtime status, snapshot restoration, and structured events
+* Clean handling of scenario, Docker, orchestration, snapshot, event-log, telemetry-log, collection, and artifact errors
+* Unit coverage for validation, orchestration, events, telemetry, artifacts, runtime status, health checks, snapshots, and CLI behavior
+* Real Docker integration coverage for lab lifecycle, segmented topology, runtime status, snapshot restoration, structured events, and telemetry collection
 
 ## Architecture
 
+PyRange keeps declarative configuration, orchestration, Docker access, observation, and persistence as separate responsibilities.
+
 ```text
-                             scenario.yaml
-                                  |
-                                  v
-                              YAML Loader
-                                  |
-                                  v
-                            ScenarioConfig
-                                  |
-                                  v
-                         Topology Validation
-                                  |
-              +-------------------+-------------------+
-              |                   |                   |
-              v                   v                   v
-         Lab Manager        Snapshot Engine     Status Engine
-              |                   |                   |
-              |                   |                   |
-              +-------------------+-------------------+
-                                  |
-                                  v
-                            Docker Backend
-                                  |
-             +--------------------+--------------------+
-             |                    |                    |
-             v                    v                    v
-         Networks            Containers             Images
-             |                    |                    |
-             |                    +-- docker exec      |
-             |                    |                    |
-             +-- network connect  +-- inspect runtime  |
-             |                                         |
-             +-- inspect subnet                 docker commit
-                                                      |
-                                                      v
-                                                Snapshot Images
-
-
-                         Health Evaluator
-                              |
-                              v
-                      Container Command Check
-                              |
-                +-------------+-------------+
-                |             |             |
-                v             v             v
-             timeout       retries       exit code
+                           scenario.yaml
+                                |
+                                v
+                           YAML Loader
+                                |
+                                v
+                         ScenarioConfig
+                                |
+                                v
+                       Topology Validation
+                                |
+            +-------------------+-------------------+
+            |                   |                   |
+            v                   v                   v
+       Lab Manager        Snapshot Engine      Status Engine
+            |                   |                   |
+            +-------------------+-------------------+
+                                |
+                                v
+                          Docker Backend
+                    +-----------+-----------+
+                    |                       |
+                    v                       v
+                 Networks                Containers
+                    |                       |
+                    |                       +-- runtime inspect
+                    |                       +-- docker stats
+                    +-- subnet inspect      +-- docker exec
 ```
 
-v0.5 adds a structured event path around instrumented operations:
+Structured events and telemetry both use an execution identity, but they remain separate data planes:
 
 ```text
                               CLI
                                |
                                v
-                      ExecutionContext
-                   +---------------------+
-                   | run_id              |
-                   | scenario            |
-                   | operation           |
-                   +---------------------+
-                               |
-                               v
-                        EventRecorder
-                               |
-                    +----------+----------+
-                    |                     |
-                    v                     v
-               EventRecord            EventSink
-                    |                     |
-                    |                     v
-                    |               JsonlEventSink
-                    |                     |
-                    |                     v
-                    |                events.jsonl
-                    |
-                    v
-              Engine Operation
-                    |
-          +---------+----------+
-          |                    |
-          v                    v
-     Lab Manager         Snapshot Engine
-          |                    |
-          +---------+----------+
-                    |
-                    v
-              Docker Backend
+                       ExecutionContext
+                  +-------------------------+
+                  | run_id                  |
+                  | scenario                |
+                  | operation               |
+                  +-------------------------+
+                     |                 |
+                     |                 |
+                     v                 v
+               EventRecorder     TelemetryRecorder
+                     |                 |
+                     v                 v
+                EventRecord      TelemetryRecord
+                     |                 |
+                     v                 v
+              JsonlEventSink   JsonlTelemetrySink
+                     |                 |
+                     v                 v
+                events.jsonl     telemetry.jsonl
 ```
 
-PyRange separates scenario definition, validation, lab orchestration, runtime inspection, health evaluation, snapshot management, structured event recording, and low-level Docker operations into independent components.
+For `pyrange telemetry`, runtime observation is coordinated above the Docker backend:
 
-The scenario model represents the desired lab topology and optional machine health checks.
+```text
+                         ScenarioConfig
+                              |
+                              v
+                     Telemetry Collector
+                    +---------+---------+
+                    |                   |
+                    v                   v
+             network.runtime      container.runtime
+                                        |
+                                        | running only
+                                        v
+                                 container.stats
+                    \___________________/
+                              |
+                              v
+                       TelemetryRecorder
+                              |
+                              v
+                      JSONL telemetry
+```
 
-The Lab Manager translates a validated scenario into Docker networks and containers.
+When `--artifact-dir` is used, the same execution `run_id` becomes the filesystem correlation key:
 
-The Docker backend provides imperative lifecycle operations and read-only runtime inspection primitives.
+```text
+artifact-root/
+└── <run_id>/
+    └── telemetry.jsonl
+```
 
-The Runtime Status Engine compares the scenario-defined desired state with actual Docker runtime state.
+The artifact layer creates the run directory. The telemetry sink still owns JSONL persistence and does not create arbitrary parent directories itself.
 
-The Health Evaluator executes configured commands inside running containers and determines whether a machine is ready during startup or restoration.
+The scenario model represents desired lab topology and optional machine health checks. The Lab Manager translates a validated scenario into Docker networks and containers. The Docker backend provides imperative lifecycle operations together with read-only runtime inspection primitives. The Runtime Status Engine compares desired state with observed Docker state. The Health Evaluator executes configured readiness commands. The Snapshot Engine coordinates image-based recovery.
 
-The Snapshot Engine coordinates snapshot creation and restoration while reusing the same Docker backend and deterministic resource naming rules used by normal lab orchestration.
+The structured event layer remains outside the Docker backend: higher-level operations emit domain events while Docker-specific functions remain focused on Docker. The telemetry collector follows the same separation by consuming read-only Docker observations and converting them into stable telemetry records rather than embedding persistence into the Docker layer.
 
-The structured event layer does not live inside the Docker backend. Higher-level orchestration components emit domain events while Docker remains responsible for Docker-specific operations.
-
-This separation provides a foundation for future telemetry collection, scenario actions, detection experiments, and scoring without coupling those capabilities directly to the Docker backend.
+This architecture keeps later scenario actions, detections, and scoring from depending directly on Docker-specific persistence details.
 
 ## Requirements
 
@@ -258,7 +267,7 @@ This separation provides a foundation for future telemetry collection, scenario 
 * Docker Desktop or Docker Engine
 * Git
 
-Docker must be running before starting a lab, inspecting live runtime state, or running tests that require a real Docker Engine.
+Docker must be running before starting a lab, inspecting live runtime state, collecting telemetry, or running tests that require a real Docker Engine.
 
 ## Installation
 
@@ -308,22 +317,17 @@ Example:
 ```yaml
 name: segmented-lab
 description: Multi-network segmented cybersecurity laboratory
-
 networks:
   - name: public-net
     subnet: 172.28.20.0/24
-
   - name: private-net
     subnet: 172.28.30.0/24
-
 machines:
   - name: web
     image: nginx:alpine
-
     interfaces:
       - network: public-net
         ip: 172.28.20.10
-
     health_check:
       type: command
       command:
@@ -333,14 +337,11 @@ machines:
       interval_seconds: 2
       timeout_seconds: 2
       retries: 3
-
   - name: analyst
     image: nginx:alpine
-
     interfaces:
       - network: public-net
         ip: 172.28.20.20
-
       - network: private-net
         ip: 172.28.30.20
 ```
@@ -349,7 +350,6 @@ This scenario describes the following topology:
 
 ```text
 segmented-lab
-
 public-net (172.28.20.0/24)
 |
 +-- web
@@ -357,8 +357,6 @@ public-net (172.28.20.0/24)
 |
 `-- analyst
     `-- 172.28.20.20
-
-
 private-net (172.28.30.0/24)
 |
 `-- analyst
@@ -398,9 +396,9 @@ This keeps invalid topology and health configuration out of the Docker orchestra
 
 ## Structured Events
 
-PyRange v0.5.0 introduces structured execution events for instrumented operations.
+PyRange v0.5.0 introduced structured execution events for instrumented operations. v0.6 keeps that event contract intact while reusing the shared execution-context model for telemetry.
 
-Structured events are intended to provide a stable machine-readable execution history that later releases can correlate with telemetry, actions, detections, and experiment results.
+Structured events provide a stable machine-readable execution history. v0.6 telemetry records can reuse the same execution identity model, while future actions, detections, and experiment results can build on the same correlation approach.
 
 Event recording is currently supported for:
 
@@ -423,7 +421,7 @@ The context contains:
 | --- | --- |
 | `run_id` | UUID identifying the complete operation. |
 | `scenario` | Scenario name associated with the operation. |
-| `operation` | Operation name such as `start`, `stop`, `snapshot`, or `restore`. |
+| `operation` | Operation name such as `start`, `stop`, `snapshot`, `restore`, or `telemetry`. |
 
 All events emitted by one recorder reuse the same `run_id`.
 
@@ -728,6 +726,270 @@ If the restore infrastructure completes successfully but event logging failed du
 
 Operational Docker or health failures remain primary when both an operational failure and event failure occur.
 
+## Telemetry Collection
+
+PyRange v0.6 introduces explicit, point-in-time runtime telemetry for scenario-defined Docker resources.
+
+Telemetry is intentionally distinct from structured events:
+
+| Concept | Purpose |
+| --- | --- |
+| Structured event | Records a control-plane fact about what an instrumented PyRange operation did. |
+| Telemetry record | Records a data-plane/runtime observation made about a lab resource. |
+
+For example, `machine.started` is an event, while `container.runtime` and `container.stats` are telemetry.
+
+### Telemetry Execution Context
+
+A telemetry CLI invocation creates one `ExecutionContext` with:
+
+```text
+scenario  = <scenario name>
+operation = telemetry
+run_id    = <generated UUID>
+```
+
+All telemetry records emitted by that recorder reuse the same `run_id`.
+
+Telemetry has its own sequence numbers. Event and telemetry recorders do not share a global sequence counter.
+
+### Telemetry Record Schema
+
+The current telemetry schema version is:
+
+```text
+schema_version = 1
+```
+
+Every telemetry record contains:
+
+| Field | Meaning |
+| --- | --- |
+| `schema_version` | Version of the telemetry schema. |
+| `telemetry_id` | UUID unique to the individual telemetry record. |
+| `run_id` | UUID identifying the execution context. |
+| `sequence` | Monotonic sequence within one telemetry recorder. |
+| `timestamp` | Timezone-aware UTC timestamp. |
+| `scenario` | Scenario name. |
+| `operation` | Execution operation, currently `telemetry` for the CLI command. |
+| `telemetry_type` | Machine-readable telemetry name. |
+| `resource` | Optional structured resource reference. |
+| `data` | JSON-compatible observation payload. |
+
+A telemetry resource reference has the same simple shape used elsewhere in PyRange:
+
+```json
+{
+  "type": "machine",
+  "name": "web"
+}
+```
+
+Telemetry timestamps must be timezone-aware and are normalized to UTC. JSON serialization is strict; non-finite floating-point values such as `NaN` and infinity are rejected.
+
+`TelemetryRecorder` assigns sequence numbers beginning at `1`. A sequence number is consumed only after the sink accepts the record successfully.
+
+### Network Runtime Telemetry
+
+For every scenario network, PyRange derives its deterministic Docker runtime name and performs read-only network inspection.
+
+The telemetry type is:
+
+```text
+network.runtime
+```
+
+Example resource:
+
+```json
+{
+  "type": "network",
+  "name": "public-net"
+}
+```
+
+When the Docker network exists, the telemetry payload is shaped like:
+
+```json
+{
+  "runtime_name": "pyrange-segmented-lab-public-net",
+  "present": true,
+  "subnets": ["172.28.20.0/24"]
+}
+```
+
+When the expected network is missing:
+
+```json
+{
+  "runtime_name": "pyrange-segmented-lab-public-net",
+  "present": false,
+  "subnets": []
+}
+```
+
+A missing expected network is an observation, not a Docker mutation and not automatically a telemetry collection error.
+
+Telemetry preserves observed runtime data. Drift classification remains the responsibility of the runtime-status layer.
+
+### Container Runtime Telemetry
+
+For every scenario machine, PyRange performs read-only container runtime inspection.
+
+The telemetry type is:
+
+```text
+container.runtime
+```
+
+For an existing container:
+
+```json
+{
+  "runtime_name": "pyrange-segmented-lab-web",
+  "present": true,
+  "status": "running",
+  "networks": [
+    {
+      "network_name": "pyrange-segmented-lab-public-net",
+      "ip_address": "172.28.20.10"
+    }
+  ]
+}
+```
+
+The `status` field preserves Docker's observed container status rather than converting it into PyRange's runtime-status classification.
+
+For a missing container:
+
+```json
+{
+  "runtime_name": "pyrange-segmented-lab-web",
+  "present": false,
+  "status": null,
+  "networks": []
+}
+```
+
+### Container Statistics
+
+If an observed container is currently `running`, PyRange also collects one point-in-time Docker statistics snapshot.
+
+The telemetry type is:
+
+```text
+container.stats
+```
+
+The payload contains:
+
+```json
+{
+  "runtime_name": "pyrange-segmented-lab-web",
+  "cpu_percent": "0.10%",
+  "memory_usage": "10MiB / 1GiB",
+  "memory_percent": "1.00%",
+  "network_io": "1kB / 2kB",
+  "block_io": "0B / 0B",
+  "pids": 5
+}
+```
+
+CPU, memory, network-I/O, and block-I/O values intentionally preserve Docker's human-readable point-in-time representation. `pids` is normalized to a non-negative integer.
+
+Statistics are not requested for missing or non-running containers.
+
+### Deterministic Collection Order
+
+Lab-wide telemetry is collected deterministically:
+
+```text
+scenario networks, in declarative order
+        |
+        v
+network.runtime for each network
+        |
+        v
+scenario machines, in declarative order
+        |
+        +-- container.runtime
+        |
+        `-- container.stats, only when running
+```
+
+All successful writes use one recorder, so sequence numbers reflect this collection order.
+
+### JSONL Telemetry Sink
+
+`JsonlTelemetrySink` writes UTF-8 JSON Lines in append mode and flushes each successful record.
+
+As with the event sink, it does not create its parent directory automatically. This is deliberate: a direct caller-provided output path remains the caller's filesystem boundary.
+
+For example:
+
+```bash
+pyrange telemetry scenarios/segmented-lab.yaml --telemetry-log telemetry.jsonl
+```
+
+Multiple invocations may append to the same direct telemetry file. Runs are distinguished by `run_id`.
+
+### Run-Scoped Artifacts
+
+PyRange v0.6 also provides explicit run-scoped telemetry organization:
+
+```bash
+pyrange telemetry scenarios/segmented-lab.yaml --artifact-dir artifacts
+```
+
+For a generated run ID such as `11111111-1111-4111-8111-111111111111`, the output path is:
+
+```text
+artifacts/
+└── 11111111-1111-4111-8111-111111111111/
+    └── telemetry.jsonl
+```
+
+The artifact manager creates the root path as needed together with a new run directory. The telemetry file itself is owned by the JSONL sink and is created when telemetry is written.
+
+An existing run directory is never silently reused. Artifact preparation fails explicitly instead of appending unrelated execution data into a pre-existing run directory.
+
+The run-scoped artifact abstraction is intentionally small in v0.6. Event logs still use caller-specified `--event-log` paths; later releases can extend experiment artifacts without changing telemetry record semantics.
+
+### Controlled Collection Boundaries
+
+Telemetry collection is explicit and read-only.
+
+PyRange v0.6 does not:
+
+* start telemetry automatically during lab startup
+* run a background monitoring daemon
+* continuously poll containers or networks
+* capture packets
+* capture container logs
+* capture arbitrary container stdout or stderr
+* collect arbitrary host data
+* mutate Docker resources during telemetry collection
+
+The collector observes only scenario-declared networks and machines through the supported Docker runtime and statistics primitives.
+
+This keeps collection bounded, reproducible, and appropriate for controlled lab experiments.
+
+### Telemetry Failure Semantics
+
+Telemetry failures are surfaced explicitly.
+
+* Scenario-name mismatches between the collector input and recorder context are rejected.
+* Docker inspection and statistics failures propagate as Docker errors.
+* Telemetry serialization and write failures propagate as telemetry sink errors.
+* Artifact-directory creation and collision failures propagate as artifact errors.
+* A failed sink write does not consume a telemetry sequence number.
+* Records already written before a later collection failure remain persisted.
+* PyRange does not roll back already written telemetry records.
+* Because telemetry collection is read-only, collection failure does not trigger Docker resource rollback.
+* A run-scoped artifact directory may remain after a later collection failure, preserving the boundary of that execution attempt.
+
+These semantics avoid hiding partial observations while preventing observability failures from being mistaken for successful complete collection.
+
 ## CLI
 
 ### Inspect a Scenario
@@ -806,7 +1068,6 @@ Example output when the lab is not running:
 ```text
 Scenario: segmented-lab
 Status: stopped
-
 Networks:
   - public-net: missing
       Runtime: pyrange-segmented-lab-public-net
@@ -816,7 +1077,6 @@ Networks:
       Runtime: pyrange-segmented-lab-private-net
       Expected subnet: 172.28.30.0/24
       Actual subnets: -
-
 Machines:
   - web: missing
       Runtime: pyrange-segmented-lab-web
@@ -826,7 +1086,6 @@ Machines:
             Runtime network: pyrange-segmented-lab-public-net
             Expected IP: 172.28.20.10
             Actual IP: -
-
   - analyst: missing
       Runtime: pyrange-segmented-lab-analyst
       Container state: -
@@ -846,6 +1105,38 @@ The command exits successfully for valid runtime states such as `running`, `stop
 Those states describe the lab; they are not CLI failures.
 
 Scenario loading errors, validation failures, Docker unavailability, and Docker inspection errors are reported as command errors.
+
+### Collect Telemetry
+
+Collect a point-in-time lab observation using exactly one output mode.
+
+Write directly to a caller-managed JSONL file:
+
+```bash
+pyrange telemetry scenarios/segmented-lab.yaml --telemetry-log telemetry.jsonl
+```
+
+Or create a run-scoped artifact directory:
+
+```bash
+pyrange telemetry scenarios/segmented-lab.yaml --artifact-dir artifacts
+```
+
+The two options are mutually exclusive, and one of them is required.
+
+Example artifact-mode output:
+
+```text
+Collecting telemetry: segmented-lab
+Run ID: 11111111-1111-4111-8111-111111111111
+Telemetry log: artifacts/11111111-1111-4111-8111-111111111111/telemetry.jsonl
+Telemetry records: 6
+Telemetry collection completed successfully.
+```
+
+The exact number of records depends on the scenario and observed container states. Every scenario network produces `network.runtime`; every scenario machine produces `container.runtime`; running machines additionally produce `container.stats`.
+
+The command does not start or stop the lab. It only observes expected scenario resources.
 
 ### Create a Snapshot
 
@@ -1329,236 +1620,157 @@ Run the full test suite:
 pytest -v
 ```
 
-PyRange v0.5.0 currently contains **157 automated tests**.
+PyRange v0.6.0 currently contains **197 automated tests**.
 
 The suite covers:
 
-* Scenario model validation
-* YAML scenario loading
+* Scenario model and YAML validation
 * IPv4 topology validation
-* Duplicate resource detection
-* Overlapping subnet detection
-* Health check configuration validation
-* Health check retry semantics
-* Health check timeout behavior
-* Docker command execution
-* Docker container runtime inspection
-* Docker network runtime inspection
-* Invalid Docker inspection data handling
+* Duplicate-resource and overlapping-subnet detection
+* Health-check configuration, retries, and timeout behavior
+* Docker command execution and error handling
+* Docker network and container lifecycle
+* Docker container and network runtime inspection
+* Docker container statistics parsing and validation
 * Exact-name runtime resource discovery
-* Health-gated startup
-* Health failure rollback
-* Startup rollback event semantics
-* Shutdown cleanup semantics
-* Lab Manager error handling
-* Execution context validation
-* Structured event schema validation
-* UTC timestamp normalization
-* Structured event naming validation
-* JSON-compatible event attributes
-* Event sequence ordering
-* Failed-write sequence behavior
-* Strict JSON serialization
-* JSONL append behavior
-* JSONL write failures
-* Lab lifecycle events
-* Resource lifecycle events
-* Health outcome events
-* Snapshot lifecycle events
-* Restore lifecycle events
-* Event failure precedence
-* Event failures during cleanup
-* Post-destructive restore event behavior
-* CLI event-recorder wiring
-* CLI `--event-log` behavior
-* CLI event-log errors
-* CLI execution-context output
-* Real JSONL persistence through the CLI
-* Docker network lifecycle
-* Docker container lifecycle
-* Multi-network attachment
-* Runtime network subnet comparison
-* Runtime static IP comparison
-* Missing resource classification
-* Missing interface detection
-* Unexpected network detection
-* Machine runtime classification
-* Lab runtime classification
-* Runtime status CLI behavior
-* Runtime status CLI error handling
-* Docker image inspection
-* Snapshot image creation
-* Snapshot name validation
-* Snapshot orchestration
-* Snapshot restore orchestration
-* Snapshot preflight validation
-* Restore by immutable image ID
-* Multi-network topology restoration
-* Post-restore health checks
-* General CLI behavior
-* General CLI error handling
-* Real Docker lab lifecycle
-* Real Docker segmented multi-network topology
-* Real Docker runtime status inspection
-* Real Docker snapshot and restore behavior
-* Real Docker structured-event persistence
+* Health-gated startup and rollback
+* Execution-context validation
+* Structured event schema, ordering, persistence, and failure precedence
+* Event lifecycle coverage for startup, shutdown, snapshots, restore, health, and rollback
+* Structured telemetry schema and UTC normalization
+* Telemetry naming and JSON data validation
+* Telemetry sequence ordering and failed-write behavior
+* Strict JSONL telemetry serialization and persistence failures
+* Container runtime telemetry
+* Running-container statistics telemetry
+* Network runtime telemetry
+* Missing-resource telemetry observations
+* Deterministic lab-wide telemetry ordering
+* Telemetry collection failure semantics
+* Run-scoped artifact creation and isolation
+* Artifact collision protection and filesystem-error handling
+* CLI `--telemetry-log` compatibility
+* CLI `--artifact-dir` behavior
+* CLI output-destination validation
+* Runtime subnet, static-IP, interface, and unexpected-network drift detection
+* Machine and lab runtime classification
+* Snapshot image creation, naming, preflight, restore, and post-restore health checks
+* General CLI success and error behavior
+* Real Docker lab lifecycle, topology, runtime status, snapshot, event, and telemetry workflows
 
 Tests requiring a running Docker Engine use the `integration` marker.
 
-Run only the integration tests:
+Run integration-marked tests with:
 
 ```bash
 pytest -v -m integration -rs
 ```
 
-PyRange v0.5.0 currently includes **5 real Docker integration tests**:
+PyRange v0.6.0 currently includes **6 real Docker-dependent integration tests** across the suite:
 
 1. Basic single-network lab lifecycle
 2. Segmented multi-network lab lifecycle and topology
 3. Runtime status across real lab startup and shutdown
 4. Snapshot creation and restoration
-5. Structured lifecycle events through the CLI and JSONL sink
+5. Structured lifecycle events through the CLI and JSONL event sink
+6. Lab-wide telemetry through the CLI, run-scoped artifact organization, and JSONL telemetry sink
 
 ### Structured Event Integration Test
 
-The structured-event integration test performs a real end-to-end workflow:
+The structured-event integration test exercises the real path:
 
 ```text
-Load real scenario
+load real scenario
       |
       v
-Invoke PyRange CLI
+invoke PyRange CLI
       |
       v
-Create ExecutionContext
+create ExecutionContext
       |
       v
-Create JSONL EventRecorder
+create JSONL EventRecorder
       |
       v
-Start real Docker lab
+start real Docker lab
       |
       v
-Verify Docker resources exist
+verify Docker resources
       |
       v
-Read JSONL event file
+read JSONL event file
       |
       v
-Verify schema version
+verify schema, shared run_id,
+unique event_id values,
+contiguous sequence numbers,
+and lifecycle outcomes
       |
       v
-Verify one shared run_id
-      |
-      v
-Verify unique event_id values
-      |
-      v
-Verify contiguous sequence numbers
-      |
-      v
-Verify lifecycle event counts
-      |
-      v
-Verify start completed successfully
-      |
-      v
-Clean Docker resources
+clean Docker resources
 ```
 
-This verifies the complete path:
+The Docker lifecycle is not mocked.
+
+### Telemetry Integration Test
+
+The telemetry integration test exercises the v0.6 path end to end:
 
 ```text
-CLI
- |
- v
-ExecutionContext
- |
- v
-EventRecorder
- |
- v
-Lab Manager
- |
- v
-Docker Engine
- |
- v
-JSONL file
+create isolated test scenario
+      |
+      v
+start real Docker lab
+      |
+      v
+invoke pyrange telemetry --artifact-dir
+      |
+      v
+create ExecutionContext
+      |
+      v
+create artifacts/<run_id>/
+      |
+      v
+inspect real Docker network
+      |
+      v
+inspect real Docker container
+      |
+      v
+collect one-shot Docker stats
+      |
+      v
+write telemetry.jsonl
+      |
+      v
+verify artifact path uses the same run_id
+      |
+      v
+verify network.runtime
+container.runtime
+container.stats
+      |
+      v
+verify schema, resources,
+sequences, telemetry IDs,
+and runtime payloads
+      |
+      v
+clean Docker resources
 ```
 
-The integration test does not mock the Docker lifecycle.
+This verifies the complete correlation path from CLI execution identity to filesystem artifact path and individual telemetry records.
 
 ### Runtime Status Integration Test
 
-The runtime-status integration test performs:
-
-```text
-Create test scenario
-      |
-      v
-Inspect absent resources
-      |
-      v
-Verify lab = stopped
-      |
-      v
-Start real lab
-      |
-      v
-Inspect Docker networks and containers
-      |
-      v
-Verify topology = matching
-      |
-      v
-Verify lab = running
-      |
-      v
-Stop real lab
-      |
-      v
-Inspect resources again
-      |
-      v
-Verify lab = stopped
-      |
-      v
-Final cleanup
-```
+The runtime-status integration test verifies absent resources as `stopped`, starts a real lab, confirms runtime topology as matching/running, stops the lab, and verifies that runtime state returns to `stopped`.
 
 ### Snapshot Integration Test
 
-The snapshot/restore integration test performs:
+The snapshot/restore integration test starts a real lab, writes filesystem state, creates a snapshot, modifies the state, restores the snapshot, verifies that the snapshotted state returns, and cleans real Docker resources.
 
-```text
-Start real lab
-      |
-      v
-Write snapshot-state marker
-      |
-      v
-Create machine snapshot
-      |
-      v
-Overwrite marker with modified-state
-      |
-      v
-Verify modified state
-      |
-      v
-Restore snapshot
-      |
-      v
-Verify snapshot-state returned
-      |
-      v
-Clean Docker resources
-```
-
-The integration suite verifies real Docker behavior rather than relying only on mocked unit tests.
-
-If Docker is unavailable, Docker-dependent integration tests are skipped.
+If Docker is unavailable, Docker-dependent integration tests are skipped rather than converted into mocked substitutes.
 
 ## Project Structure
 
@@ -1573,12 +1785,16 @@ pyrange/
 |   |   `-- scenario_loader.py
 |   |
 |   |-- engine/
+|   |   |-- artifacts.py
 |   |   |-- docker.py
 |   |   |-- events.py
+|   |   |-- execution.py
 |   |   |-- health.py
 |   |   |-- manager.py
 |   |   |-- snapshot.py
-|   |   `-- status.py
+|   |   |-- status.py
+|   |   |-- telemetry.py
+|   |   `-- telemetry_collector.py
 |   |
 |   `-- models/
 |       `-- scenario.py
@@ -1592,10 +1808,13 @@ pyrange/
 |   |   |-- test_lab_lifecycle.py
 |   |   |-- test_multi_network_lifecycle.py
 |   |   |-- test_runtime_status.py
-|   |   `-- test_structured_events.py
+|   |   |-- test_structured_events.py
+|   |   `-- test_telemetry_collection.py
 |   |
+|   |-- test_artifacts.py
 |   |-- test_cli.py
 |   |-- test_cli_events.py
+|   |-- test_cli_telemetry.py
 |   |-- test_docker_engine.py
 |   |-- test_events.py
 |   |-- test_health.py
@@ -1607,7 +1826,9 @@ pyrange/
 |   |-- test_snapshot_events.py
 |   |-- test_snapshot_integration.py
 |   |-- test_status.py
-|   `-- test_status_cli.py
+|   |-- test_status_cli.py
+|   |-- test_telemetry.py
+|   `-- test_telemetry_collector.py
 |
 |-- docs/
 |-- pyproject.toml
@@ -1617,7 +1838,7 @@ pyrange/
 
 ## Current Limitations
 
-PyRange v0.5.0 focuses on reproducible Docker topology, runtime topology inspection, machine readiness, filesystem-oriented snapshots, and structured execution events.
+PyRange v0.6.0 focuses on reproducible Docker topology, runtime inspection, machine readiness, filesystem-oriented snapshots, structured execution events, and explicit point-in-time telemetry collection.
 
 Current limitations include:
 
@@ -1633,27 +1854,30 @@ Current limitations include:
 * Unexpected network attachments are detected only on expected scenario containers
 * No persistent runtime-status history
 * Structured events are currently persisted only to local JSONL files
-* No event database
-* No remote event shipping
-* No event-streaming daemon
-* No event-file rotation
-* No event signing or tamper-evidence layer
-* CLI `--event-log` is currently available for `start`, `stop`, `snapshot`, and `restore`, not `inspect` or `status`
-* Event sequence numbers are scoped to a recorder rather than globally coordinated across processes
-* Parent directories for JSONL event files are not created automatically
+* No event database, remote event shipping, streaming daemon, file rotation, signing, or tamper-evidence layer
+* CLI `--event-log` is available for `start`, `stop`, `snapshot`, and `restore`, not `inspect` or `status`
+* Event sequence numbers are scoped to one recorder rather than globally coordinated across processes
+* Parent directories for direct JSONL event paths are not created automatically
+* Telemetry is point-in-time and explicitly invoked rather than continuous
+* Telemetry currently observes scenario-declared Docker networks and containers only
+* Telemetry currently provides network runtime state, container runtime state, and one-shot container statistics
+* Telemetry does not capture packets, container logs, arbitrary process details, or arbitrary host telemetry
+* Telemetry is currently persisted only to local JSONL files
+* No telemetry database, remote telemetry shipping, streaming service, or retention policy
+* Direct `--telemetry-log` paths do not create missing parent directories automatically
+* Run-scoped artifact organization currently covers telemetry; event artifacts still use explicit caller-provided paths
+* Run-scoped artifact directories are local filesystem artifacts and are not indexed in a persistent catalog
 * No persistent snapshot catalog
 * No snapshot listing command
 * No snapshot deletion command
 * Snapshot storage is managed as local Docker images
 * Snapshot images capture container writable filesystem state rather than full machine state
 * External Docker volume data is not captured by snapshots
-* Container memory and live process state are not captured
+* Container memory and live process execution state are not captured by snapshots
 * Restore replaces the current container
 * Restore is not fully transactional after the destructive phase begins
-* No telemetry collection
 * No scenario action engine
-* No detection integration
-* No detection evaluation
+* No detection integration or detection evaluation
 * No scoring system
 * No experiment-result model
 
@@ -1745,14 +1969,28 @@ These are explicit scope boundaries of the current release rather than hidden ca
 
 ### v0.6 - Telemetry Collection
 
-Planned:
-
-* Container execution telemetry
-* Network-oriented telemetry sources
-* Correlation with execution `run_id`
-* Structured telemetry records
-* Experiment artifact organization
-* Controlled collection boundaries
+* [x] Shared execution context for telemetry correlation
+* [x] Versioned structured telemetry schema
+* [x] Per-record `telemetry_id`
+* [x] Per-run ordered telemetry sequences
+* [x] UTC telemetry timestamps
+* [x] Structured telemetry resource metadata
+* [x] JSON-compatible telemetry data
+* [x] Telemetry sink protocol
+* [x] Strict append-only JSONL telemetry sink
+* [x] Explicit telemetry serialization and write errors
+* [x] Docker container runtime inspection for telemetry
+* [x] Docker container statistics collection
+* [x] Container runtime telemetry
+* [x] Running-container statistics telemetry
+* [x] Network runtime telemetry
+* [x] Deterministic lab-wide collection order
+* [x] Explicit point-in-time `telemetry` CLI command
+* [x] Direct `--telemetry-log` output
+* [x] Run-scoped artifact organization
+* [x] `--artifact-dir` CLI output
+* [x] Controlled, read-only collection boundaries
+* [x] Real Docker telemetry integration coverage
 
 ### v0.7 - Scenario Action Engine
 
@@ -1832,8 +2070,12 @@ Do not use PyRange against third-party systems or infrastructure without permiss
 
 Structured event logs may contain lab names, Docker resource names, network information, IP addresses, snapshot references, image identifiers, and operational error metadata.
 
-Treat event logs as experiment artifacts and protect them accordingly.
+Telemetry logs may contain scenario and Docker resource names, network subnets, container IP addresses, raw Docker container states, and point-in-time CPU, memory, network-I/O, block-I/O, and PID-count statistics.
 
-PyRange intentionally avoids recording raw health-check stdout and stderr into structured event attributes by default, but users remain responsible for reviewing the sensitivity of generated artifacts.
+Run-scoped artifact directories group telemetry by execution `run_id`. Treat event logs, telemetry logs, and run artifact directories as experiment artifacts and protect them accordingly.
+
+PyRange intentionally avoids recording raw health-check stdout and stderr into structured event attributes by default. v0.6 telemetry also does not capture packet contents, container logs, arbitrary command output, or arbitrary host data.
+
+Users remain responsible for reviewing the sensitivity, retention, and access controls of generated artifacts.
 
 See `SECURITY.md` for the project's security policy.

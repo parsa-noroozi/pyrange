@@ -68,9 +68,7 @@ machines:
 
     scenario = load_scenario(scenario_path)
 
-    telemetry_log = (
-        tmp_path / "telemetry.jsonl"
-    )
+    artifact_root = tmp_path / "artifacts"
 
     network_names = [
         get_lab_network_name(
@@ -96,13 +94,34 @@ machines:
             [
                 "telemetry",
                 str(scenario_path),
-                "--telemetry-log",
-                str(telemetry_log),
+                "--artifact-dir",
+                str(artifact_root),
             ],
         )
 
         assert result.exit_code == 0
+
+        run_id_text = next(
+            line.removeprefix("Run ID: ")
+            for line in result.stdout.splitlines()
+            if line.startswith("Run ID: ")
+        )
+        run_id = UUID(run_id_text)
+
+        run_directory = (
+            artifact_root / str(run_id)
+        )
+        telemetry_log = (
+            run_directory / "telemetry.jsonl"
+        )
+
+        assert run_directory.is_dir()
         assert telemetry_log.exists()
+
+        assert (
+            f"Telemetry log: {telemetry_log}"
+            in result.stdout
+        )
 
         lines = telemetry_log.read_text(
             encoding="utf-8"
@@ -132,22 +151,15 @@ machines:
             for record in records
         )
 
-        run_ids = {
+        assert {
             record["run_id"]
             for record in records
+        } == {
+            str(run_id)
         }
-
-        assert len(run_ids) == 1
-
-        run_id = UUID(run_ids.pop())
 
         assert (
             f"Run ID: {run_id}"
-            in result.stdout
-        )
-
-        assert (
-            f"Telemetry log: {telemetry_log}"
             in result.stdout
         )
 

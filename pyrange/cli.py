@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from pyrange.core import load_scenario
 from pyrange.engine import (
+    ArtifactError,
     DockerOperationError,
     DockerUnavailableError,
     EventRecorder,
@@ -20,6 +21,7 @@ from pyrange.engine import (
     collect_lab_telemetry,
     create_machine_snapshot,
     inspect_lab_status,
+    prepare_run_artifacts,
     restore_machine_snapshot,
     start_lab,
     stop_lab,
@@ -199,16 +201,37 @@ def status(path: Path) -> None:
 @app.command()
 def telemetry(
     path: Path,
-    telemetry_log: Path = typer.Option(
-        ...,
+    telemetry_log: Path | None = typer.Option(
+        None,
         "--telemetry-log",
         help=(
             "Append structured telemetry "
             "to a JSONL file."
         ),
     ),
+    artifact_dir: Path | None = typer.Option(
+        None,
+        "--artifact-dir",
+        help=(
+            "Create a run-scoped artifact directory "
+            "inside this root."
+        ),
+    ),
 ) -> None:
     """Collect point-in-time telemetry from a PyRange lab."""
+
+    if telemetry_log is None and artifact_dir is None:
+        fail(
+            "one of --telemetry-log or "
+            "--artifact-dir is required"
+        )
+
+    if telemetry_log is not None and artifact_dir is not None:
+        fail(
+            "--telemetry-log and --artifact-dir "
+            "are mutually exclusive"
+        )
+
     try:
         scenario = load_scenario(path)
 
@@ -217,9 +240,23 @@ def telemetry(
             operation="telemetry",
         )
 
+        if artifact_dir is not None:
+            artifacts = prepare_run_artifacts(
+                artifact_dir,
+                context,
+            )
+            resolved_telemetry_log = (
+                artifacts.telemetry_log
+            )
+        else:
+            assert telemetry_log is not None
+            resolved_telemetry_log = telemetry_log
+
         recorder = TelemetryRecorder(
             context,
-            JsonlTelemetrySink(telemetry_log),
+            JsonlTelemetrySink(
+                resolved_telemetry_log
+            ),
         )
 
         typer.echo(
@@ -229,7 +266,8 @@ def telemetry(
             f"Run ID: {recorder.context.run_id}"
         )
         typer.echo(
-            f"Telemetry log: {telemetry_log}"
+            "Telemetry log: "
+            f"{resolved_telemetry_log}"
         )
 
         records = collect_lab_telemetry(
@@ -242,6 +280,9 @@ def telemetry(
 
     except ValidationError as exc:
         fail(f"invalid scenario: {exc}")
+
+    except ArtifactError as exc:
+        fail(f"Artifact error: {exc}")
 
     except TelemetrySinkError as exc:
         fail(f"Telemetry log error: {exc}")

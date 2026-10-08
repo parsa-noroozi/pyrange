@@ -1,3 +1,8 @@
+from pyrange.engine.artifacts import (
+    ArtifactError,
+    RunArtifacts,
+    prepare_run_artifacts,
+)
 from pyrange.engine.docker import (
     ContainerCommandResult,
     ContainerNetworkState,
@@ -76,6 +81,7 @@ from pyrange.engine.telemetry_collector import (
 
 
 __all__ = [
+    "ArtifactError",
     "ContainerCommandResult",
     "ContainerNetworkState",
     "ContainerRuntimeState",
@@ -101,6 +107,7 @@ __all__ = [
     "MachineStatus",
     "NetworkRuntimeState",
     "NetworkStatus",
+    "RunArtifacts",
     "SnapshotError",
     "TelemetryCollectionError",
     "TelemetryRecord",
@@ -129,6 +136,7 @@ __all__ = [
     "inspect_container_runtime",
     "inspect_lab_status",
     "inspect_network_runtime",
+    "prepare_run_artifacts",
     "remove_container",
     "remove_network",
     "restore_machine_snapshot",

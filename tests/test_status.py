@@ -22,6 +22,27 @@ from pyrange.models import (
 )
 
 
+PUBLIC_NETWORK_NAME = (
+    "pyrange-v2-network-"
+    "274e46aeff6178f1d517ff9a97feb7880a0fd97009f63314f92faa9fbd9c65e2"
+)
+
+PRIVATE_NETWORK_NAME = (
+    "pyrange-v2-network-"
+    "a93ab508a05944ec0033ef37765309c41fe014656827277e4e1e1890378e09ff"
+)
+
+WEB_CONTAINER_NAME = (
+    "pyrange-v2-container-"
+    "f39a4c204670f9d10bbc9444773d373494e81db6c4e13aebfe1b8c9a36d7d191"
+)
+
+ANALYST_CONTAINER_NAME = (
+    "pyrange-v2-container-"
+    "a652360f2e50affdeb39eafe708667880cd8bf6b89f359d725b117c864ee63f8"
+)
+
+
 @pytest.fixture
 def scenario() -> ScenarioConfig:
     return ScenarioConfig(
@@ -78,41 +99,41 @@ def test_inspect_lab_status_returns_running_when_matching(
 ) -> None:
     mock_inspect_network.side_effect = [
         NetworkRuntimeState(
-            name="pyrange-status-lab-public-net",
+            name=PUBLIC_NETWORK_NAME,
             subnets=("172.28.10.0/24",),
         ),
         NetworkRuntimeState(
-            name="pyrange-status-lab-private-net",
+            name=PRIVATE_NETWORK_NAME,
             subnets=("172.28.20.0/24",),
         ),
     ]
 
     mock_inspect_container.side_effect = [
         ContainerRuntimeState(
-            name="pyrange-status-lab-web",
+            name=WEB_CONTAINER_NAME,
             status="running",
             networks=(
                 ContainerNetworkState(
                     network_name=(
-                        "pyrange-status-lab-public-net"
+                        PUBLIC_NETWORK_NAME
                     ),
                     ip_address="172.28.10.10",
                 ),
             ),
         ),
         ContainerRuntimeState(
-            name="pyrange-status-lab-analyst",
+            name=ANALYST_CONTAINER_NAME,
             status="running",
             networks=(
                 ContainerNetworkState(
                     network_name=(
-                        "pyrange-status-lab-private-net"
+                        PRIVATE_NETWORK_NAME
                     ),
                     ip_address="172.28.20.20",
                 ),
                 ContainerNetworkState(
                     network_name=(
-                        "pyrange-status-lab-public-net"
+                        PUBLIC_NETWORK_NAME
                     ),
                     ip_address="172.28.10.20",
                 ),
@@ -129,7 +150,7 @@ def test_inspect_lab_status_returns_running_when_matching(
             NetworkStatus(
                 name="public-net",
                 runtime_name=(
-                    "pyrange-status-lab-public-net"
+                    PUBLIC_NETWORK_NAME
                 ),
                 state="matching",
                 expected_subnet="172.28.10.0/24",
@@ -138,7 +159,7 @@ def test_inspect_lab_status_returns_running_when_matching(
             NetworkStatus(
                 name="private-net",
                 runtime_name=(
-                    "pyrange-status-lab-private-net"
+                    PRIVATE_NETWORK_NAME
                 ),
                 state="matching",
                 expected_subnet="172.28.20.0/24",
@@ -148,14 +169,14 @@ def test_inspect_lab_status_returns_running_when_matching(
         machines=(
             MachineStatus(
                 name="web",
-                runtime_name="pyrange-status-lab-web",
+                runtime_name=WEB_CONTAINER_NAME,
                 state="running",
                 container_state="running",
                 interfaces=(
                     MachineInterfaceStatus(
                         network="public-net",
                         runtime_network=(
-                            "pyrange-status-lab-public-net"
+                            PUBLIC_NETWORK_NAME
                         ),
                         state="matching",
                         expected_ip="172.28.10.10",
@@ -167,7 +188,7 @@ def test_inspect_lab_status_returns_running_when_matching(
             MachineStatus(
                 name="analyst",
                 runtime_name=(
-                    "pyrange-status-lab-analyst"
+                    ANALYST_CONTAINER_NAME
                 ),
                 state="running",
                 container_state="running",
@@ -175,7 +196,7 @@ def test_inspect_lab_status_returns_running_when_matching(
                     MachineInterfaceStatus(
                         network="public-net",
                         runtime_network=(
-                            "pyrange-status-lab-public-net"
+                            PUBLIC_NETWORK_NAME
                         ),
                         state="matching",
                         expected_ip="172.28.10.20",
@@ -184,7 +205,7 @@ def test_inspect_lab_status_returns_running_when_matching(
                     MachineInterfaceStatus(
                         network="private-net",
                         runtime_network=(
-                            "pyrange-status-lab-private-net"
+                            PRIVATE_NETWORK_NAME
                         ),
                         state="matching",
                         expected_ip="172.28.20.20",
@@ -197,13 +218,13 @@ def test_inspect_lab_status_returns_running_when_matching(
     )
 
     assert mock_inspect_network.call_args_list == [
-        call("pyrange-status-lab-public-net"),
-        call("pyrange-status-lab-private-net"),
+        call(PUBLIC_NETWORK_NAME),
+        call(PRIVATE_NETWORK_NAME),
     ]
 
     assert mock_inspect_container.call_args_list == [
-        call("pyrange-status-lab-web"),
-        call("pyrange-status-lab-analyst"),
+        call(WEB_CONTAINER_NAME),
+        call(ANALYST_CONTAINER_NAME),
     ]
 
 
@@ -253,23 +274,23 @@ def test_inspect_lab_status_returns_partial_when_machine_missing(
 ) -> None:
     mock_inspect_network.side_effect = [
         NetworkRuntimeState(
-            name="pyrange-status-lab-public-net",
+            name=PUBLIC_NETWORK_NAME,
             subnets=("172.28.10.0/24",),
         ),
         NetworkRuntimeState(
-            name="pyrange-status-lab-private-net",
+            name=PRIVATE_NETWORK_NAME,
             subnets=("172.28.20.0/24",),
         ),
     ]
 
     mock_inspect_container.side_effect = [
         ContainerRuntimeState(
-            name="pyrange-status-lab-web",
+            name=WEB_CONTAINER_NAME,
             status="running",
             networks=(
                 ContainerNetworkState(
                     network_name=(
-                        "pyrange-status-lab-public-net"
+                        PUBLIC_NETWORK_NAME
                     ),
                     ip_address="172.28.10.10",
                 ),
@@ -298,41 +319,41 @@ def test_inspect_lab_status_preserves_stopped_container_state(
 ) -> None:
     mock_inspect_network.side_effect = [
         NetworkRuntimeState(
-            name="pyrange-status-lab-public-net",
+            name=PUBLIC_NETWORK_NAME,
             subnets=("172.28.10.0/24",),
         ),
         NetworkRuntimeState(
-            name="pyrange-status-lab-private-net",
+            name=PRIVATE_NETWORK_NAME,
             subnets=("172.28.20.0/24",),
         ),
     ]
 
     mock_inspect_container.side_effect = [
         ContainerRuntimeState(
-            name="pyrange-status-lab-web",
+            name=WEB_CONTAINER_NAME,
             status="exited",
             networks=(
                 ContainerNetworkState(
                     network_name=(
-                        "pyrange-status-lab-public-net"
+                        PUBLIC_NETWORK_NAME
                     ),
                     ip_address="172.28.10.10",
                 ),
             ),
         ),
         ContainerRuntimeState(
-            name="pyrange-status-lab-analyst",
+            name=ANALYST_CONTAINER_NAME,
             status="running",
             networks=(
                 ContainerNetworkState(
                     network_name=(
-                        "pyrange-status-lab-public-net"
+                        PUBLIC_NETWORK_NAME
                     ),
                     ip_address="172.28.10.20",
                 ),
                 ContainerNetworkState(
                     network_name=(
-                        "pyrange-status-lab-private-net"
+                        PRIVATE_NETWORK_NAME
                     ),
                     ip_address="172.28.20.20",
                 ),
@@ -363,11 +384,11 @@ def test_inspect_lab_status_detects_network_subnet_drift(
 ) -> None:
     mock_inspect_network.side_effect = [
         NetworkRuntimeState(
-            name="pyrange-status-lab-public-net",
+            name=PUBLIC_NETWORK_NAME,
             subnets=("172.28.99.0/24",),
         ),
         NetworkRuntimeState(
-            name="pyrange-status-lab-private-net",
+            name=PRIVATE_NETWORK_NAME,
             subnets=("172.28.20.0/24",),
         ),
     ]
@@ -400,12 +421,12 @@ def test_inspect_lab_status_detects_interface_ip_drift(
 
     mock_inspect_container.side_effect = [
         ContainerRuntimeState(
-            name="pyrange-status-lab-web",
+            name=WEB_CONTAINER_NAME,
             status="running",
             networks=(
                 ContainerNetworkState(
                     network_name=(
-                        "pyrange-status-lab-public-net"
+                        PUBLIC_NETWORK_NAME
                     ),
                     ip_address="172.28.10.99",
                 ),
@@ -442,12 +463,12 @@ def test_inspect_lab_status_detects_missing_interface(
     mock_inspect_container.side_effect = [
         None,
         ContainerRuntimeState(
-            name="pyrange-status-lab-analyst",
+            name=ANALYST_CONTAINER_NAME,
             status="running",
             networks=(
                 ContainerNetworkState(
                     network_name=(
-                        "pyrange-status-lab-public-net"
+                        PUBLIC_NETWORK_NAME
                     ),
                     ip_address="172.28.10.20",
                 ),
@@ -481,12 +502,12 @@ def test_inspect_lab_status_detects_unexpected_network(
 
     mock_inspect_container.side_effect = [
         ContainerRuntimeState(
-            name="pyrange-status-lab-web",
+            name=WEB_CONTAINER_NAME,
             status="running",
             networks=(
                 ContainerNetworkState(
                     network_name=(
-                        "pyrange-status-lab-public-net"
+                        PUBLIC_NETWORK_NAME
                     ),
                     ip_address="172.28.10.10",
                 ),

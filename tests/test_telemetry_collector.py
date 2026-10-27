@@ -27,6 +27,27 @@ from pyrange.models import (
 )
 
 
+WEB_CONTAINER_NAME = (
+    "pyrange-v2-container-"
+    "a2a6384e6e29a1de5f91ee64e2359b025e760c2d793272b354c33cd4c98f4f5f"
+)
+
+ANALYST_CONTAINER_NAME = (
+    "pyrange-v2-container-"
+    "eb8e8c1174e5fa8119c4b3931486ff525b47924ee117b2067e2af279e8e367f0"
+)
+
+PUBLIC_NETWORK_NAME = (
+    "pyrange-v2-network-"
+    "5b650ef9e8dcab26fe90a46c66a62c1e665fb2d7a2079b2d16b9b0a9ba35841c"
+)
+
+PRIVATE_NETWORK_NAME = (
+    "pyrange-v2-network-"
+    "04b5de7f98faf1c91903ca2bf8db564ab71da979be9a021acf03e79ae918efbf"
+)
+
+
 class MemoryTelemetrySink:
     def __init__(self) -> None:
         self.records: list[TelemetryRecord] = []
@@ -102,24 +123,24 @@ def test_collect_container_telemetry_records_running_machines(
 ) -> None:
     mock_inspect.side_effect = [
         ContainerRuntimeState(
-            name="pyrange-telemetry-lab-web",
+            name=WEB_CONTAINER_NAME,
             status="running",
             networks=(
                 ContainerNetworkState(
                     network_name=(
-                        "pyrange-telemetry-lab-public-net"
+                        PUBLIC_NETWORK_NAME
                     ),
                     ip_address="172.28.10.10",
                 ),
             ),
         ),
         ContainerRuntimeState(
-            name="pyrange-telemetry-lab-analyst",
+            name=ANALYST_CONTAINER_NAME,
             status="running",
             networks=(
                 ContainerNetworkState(
                     network_name=(
-                        "pyrange-telemetry-lab-private-net"
+                        PRIVATE_NETWORK_NAME
                     ),
                     ip_address="172.28.20.20",
                 ),
@@ -129,7 +150,7 @@ def test_collect_container_telemetry_records_running_machines(
 
     mock_stats.side_effect = [
         ContainerStatsSnapshot(
-            name="pyrange-telemetry-lab-web",
+            name=WEB_CONTAINER_NAME,
             cpu_percent="0.15%",
             memory_usage="12.3MiB / 1GiB",
             memory_percent="1.20%",
@@ -138,7 +159,7 @@ def test_collect_container_telemetry_records_running_machines(
             pids=7,
         ),
         ContainerStatsSnapshot(
-            name="pyrange-telemetry-lab-analyst",
+            name=ANALYST_CONTAINER_NAME,
             cpu_percent="0.05%",
             memory_usage="4.1MiB / 1GiB",
             memory_percent="0.40%",
@@ -189,13 +210,13 @@ def test_collect_container_telemetry_records_running_machines(
     assert records[0].resource.type == "machine"
     assert records[0].resource.name == "web"
     assert records[0].data == {
-        "runtime_name": "pyrange-telemetry-lab-web",
+        "runtime_name": WEB_CONTAINER_NAME,
         "present": True,
         "status": "running",
         "networks": [
             {
                 "network_name": (
-                    "pyrange-telemetry-lab-public-net"
+                    PUBLIC_NETWORK_NAME
                 ),
                 "ip_address": "172.28.10.10",
             }
@@ -203,7 +224,7 @@ def test_collect_container_telemetry_records_running_machines(
     }
 
     assert records[1].data == {
-        "runtime_name": "pyrange-telemetry-lab-web",
+        "runtime_name": WEB_CONTAINER_NAME,
         "cpu_percent": "0.15%",
         "memory_usage": "12.3MiB / 1GiB",
         "memory_percent": "1.20%",
@@ -213,13 +234,13 @@ def test_collect_container_telemetry_records_running_machines(
     }
 
     assert mock_inspect.call_args_list == [
-        call("pyrange-telemetry-lab-web"),
-        call("pyrange-telemetry-lab-analyst"),
+        call(WEB_CONTAINER_NAME),
+        call(ANALYST_CONTAINER_NAME),
     ]
 
     assert mock_stats.call_args_list == [
-        call("pyrange-telemetry-lab-web"),
-        call("pyrange-telemetry-lab-analyst"),
+        call(WEB_CONTAINER_NAME),
+        call(ANALYST_CONTAINER_NAME),
     ]
 
 
@@ -265,7 +286,7 @@ def test_collect_container_telemetry_records_missing_machine(
         "container.runtime"
     )
     assert records[0].data == {
-        "runtime_name": "pyrange-telemetry-lab-web",
+        "runtime_name": WEB_CONTAINER_NAME,
         "present": False,
         "status": None,
         "networks": [],
@@ -296,12 +317,12 @@ def test_collect_container_telemetry_skips_stats_when_not_running(
     )
 
     mock_inspect.return_value = ContainerRuntimeState(
-        name="pyrange-telemetry-lab-web",
+        name=WEB_CONTAINER_NAME,
         status="exited",
         networks=(
             ContainerNetworkState(
                 network_name=(
-                    "pyrange-telemetry-lab-public-net"
+                    PUBLIC_NETWORK_NAME
                 ),
                 ip_address="172.28.10.10",
             ),
@@ -379,7 +400,7 @@ def test_collect_container_telemetry_preserves_runtime_record_on_stats_failure(
     )
 
     mock_inspect.return_value = ContainerRuntimeState(
-        name="pyrange-telemetry-lab-web",
+        name=WEB_CONTAINER_NAME,
         status="running",
         networks=(),
     )
@@ -433,7 +454,7 @@ def test_collect_container_telemetry_stops_after_sink_failure(
     )
 
     mock_inspect.return_value = ContainerRuntimeState(
-        name="pyrange-telemetry-lab-web",
+        name=WEB_CONTAINER_NAME,
         status="running",
         networks=(),
     )
@@ -513,7 +534,7 @@ def test_collect_network_telemetry_records_existing_and_missing_networks(
     mock_inspect_network.side_effect = [
         NetworkRuntimeState(
             name=(
-                "pyrange-telemetry-lab-public-net"
+                PUBLIC_NETWORK_NAME
             ),
             subnets=("172.28.10.0/24",),
         ),
@@ -558,7 +579,7 @@ def test_collect_network_telemetry_records_existing_and_missing_networks(
 
     assert records[0].data == {
         "runtime_name": (
-            "pyrange-telemetry-lab-public-net"
+            PUBLIC_NETWORK_NAME
         ),
         "present": True,
         "subnets": [
@@ -572,7 +593,7 @@ def test_collect_network_telemetry_records_existing_and_missing_networks(
 
     assert records[1].data == {
         "runtime_name": (
-            "pyrange-telemetry-lab-private-net"
+            PRIVATE_NETWORK_NAME
         ),
         "present": False,
         "subnets": [],
@@ -580,10 +601,10 @@ def test_collect_network_telemetry_records_existing_and_missing_networks(
 
     assert mock_inspect_network.call_args_list == [
         call(
-            "pyrange-telemetry-lab-public-net"
+            PUBLIC_NETWORK_NAME
         ),
         call(
-            "pyrange-telemetry-lab-private-net"
+            PRIVATE_NETWORK_NAME
         ),
     ]
 
@@ -617,13 +638,13 @@ def test_collect_lab_telemetry_orders_networks_before_containers(
     mock_inspect_network.side_effect = [
         NetworkRuntimeState(
             name=(
-                "pyrange-telemetry-lab-public-net"
+                PUBLIC_NETWORK_NAME
             ),
             subnets=("172.28.10.0/24",),
         ),
         NetworkRuntimeState(
             name=(
-                "pyrange-telemetry-lab-private-net"
+                PRIVATE_NETWORK_NAME
             ),
             subnets=("172.28.20.0/24",),
         ),
@@ -631,7 +652,7 @@ def test_collect_lab_telemetry_orders_networks_before_containers(
 
     mock_inspect_container.return_value = (
         ContainerRuntimeState(
-            name="pyrange-telemetry-lab-web",
+            name=WEB_CONTAINER_NAME,
             status="running",
             networks=(),
         )
@@ -639,7 +660,7 @@ def test_collect_lab_telemetry_orders_networks_before_containers(
 
     mock_stats.return_value = (
         ContainerStatsSnapshot(
-            name="pyrange-telemetry-lab-web",
+            name=WEB_CONTAINER_NAME,
             cpu_percent="0.10%",
             memory_usage="10MiB / 1GiB",
             memory_percent="1.00%",

@@ -21,6 +21,32 @@ from pyrange.models import (
 )
 
 
+WEB_CONTAINER_NAME = (
+    "pyrange-v2-container-"
+    "a72b1735188af3b6fc188ccb131308e2549b3cdb40bb59c2ff48eb58e5ff4b2b"
+)
+
+LAB_NETWORK_NAME = (
+    "pyrange-v2-network-"
+    "acd1d32065691d60b08f07b36886b6edffdc48c3271c6cdc5f34f6d9d8658c0c"
+)
+
+PUBLIC_NETWORK_NAME = (
+    "pyrange-v2-network-"
+    "2fd34f153f539616bede1d0acecdfe54fcbeb06fc41e712d20eeee8c892c1afd"
+)
+
+PRIVATE_NETWORK_NAME = (
+    "pyrange-v2-network-"
+    "5b79cc70f0d5cf933d15f35197bf4d859311bdfb986f4836e938da1510f159b8"
+)
+
+SNAPSHOT_REPOSITORY_NAME = (
+    "pyrange-v2-snapshot-"
+    "70608625e6a6d15470792918e79ff8237bf46fae8048a3af6339b3ef3e9fe7ae"
+)
+
+
 @pytest.fixture
 def scenario() -> ScenarioConfig:
     return ScenarioConfig(
@@ -90,7 +116,7 @@ def test_generates_snapshot_image_ref(
 
     assert image_ref == (
         "pyrange-snapshots/"
-        "snapshot-lab-web:checkpoint-1"
+        f"{SNAPSHOT_REPOSITORY_NAME}:checkpoint-1"
     )
 
 
@@ -141,19 +167,19 @@ def test_creates_machine_snapshot(
     assert snapshot == MachineSnapshot(
         snapshot_name="checkpoint-1",
         machine_name="web",
-        container_name="pyrange-snapshot-lab-web",
+        container_name=WEB_CONTAINER_NAME,
         image_ref=(
             "pyrange-snapshots/"
-            "snapshot-lab-web:checkpoint-1"
+            f"{SNAPSHOT_REPOSITORY_NAME}:checkpoint-1"
         ),
         image_id="sha256:snapshot123",
     )
 
     mock_create_container_snapshot.assert_called_once_with(
-        name="pyrange-snapshot-lab-web",
+        name=WEB_CONTAINER_NAME,
         image_ref=(
             "pyrange-snapshots/"
-            "snapshot-lab-web:checkpoint-1"
+            f"{SNAPSHOT_REPOSITORY_NAME}:checkpoint-1"
         ),
     )
 
@@ -221,30 +247,30 @@ def test_restores_machine_snapshot(
     assert result == MachineRestoreResult(
         snapshot_name="checkpoint-1",
         machine_name="web",
-        container_name="pyrange-snapshot-lab-web",
+        container_name=WEB_CONTAINER_NAME,
         image_ref=(
             "pyrange-snapshots/"
-            "snapshot-lab-web:checkpoint-1"
+            f"{SNAPSHOT_REPOSITORY_NAME}:checkpoint-1"
         ),
         image_id="sha256:snapshot123",
     )
 
     mock_get_image_id.assert_called_once_with(
         "pyrange-snapshots/"
-        "snapshot-lab-web:checkpoint-1"
+        f"{SNAPSHOT_REPOSITORY_NAME}:checkpoint-1"
     )
 
     mock_create_container.assert_called_once_with(
-        name="pyrange-snapshot-lab-web",
+        name=WEB_CONTAINER_NAME,
         image="sha256:snapshot123",
-        network="pyrange-snapshot-lab-lab-net",
+        network=LAB_NETWORK_NAME,
         ip="172.28.40.10",
     )
 
     assert events == [
-        "remove:pyrange-snapshot-lab-web",
-        "create:pyrange-snapshot-lab-web",
-        "start:pyrange-snapshot-lab-web",
+       f"remove:{WEB_CONTAINER_NAME}",
+      f"create:{WEB_CONTAINER_NAME}",
+       f"start:{WEB_CONTAINER_NAME}",
     ]
 
 
@@ -273,24 +299,24 @@ def test_restore_reconnects_secondary_networks(
     )
 
     mock_create_container.assert_called_once_with(
-        name="pyrange-snapshot-lab-web",
+        name=WEB_CONTAINER_NAME,
         image="sha256:snapshot123",
         network=(
-            "pyrange-snapshot-lab-public-net"
+            PUBLIC_NETWORK_NAME
         ),
         ip="172.28.40.10",
     )
 
     mock_connect_container_to_network.assert_called_once_with(
-        name="pyrange-snapshot-lab-web",
+        name=WEB_CONTAINER_NAME,
         network=(
-            "pyrange-snapshot-lab-private-net"
+            PRIVATE_NETWORK_NAME
         ),
         ip="172.28.50.10",
     )
 
     mock_start_container.assert_called_once_with(
-        "pyrange-snapshot-lab-web"
+        WEB_CONTAINER_NAME
     )
 
 
@@ -331,7 +357,7 @@ def test_restore_evaluates_health_check(
     )
 
     mock_evaluate_health_check.assert_called_once_with(
-        "pyrange-snapshot-lab-web",
+        WEB_CONTAINER_NAME,
         scenario.machines[0].health_check,
     )
 
@@ -403,7 +429,7 @@ def test_restore_checks_snapshot_before_removing_container(
 
     mock_get_image_id.assert_called_once_with(
         "pyrange-snapshots/"
-        "snapshot-lab-web:checkpoint-1"
+        f"{SNAPSHOT_REPOSITORY_NAME}:checkpoint-1"
     )
     mock_remove_container.assert_not_called()
 

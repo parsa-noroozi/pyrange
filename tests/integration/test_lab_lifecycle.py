@@ -32,9 +32,18 @@ def test_basic_web_lab_lifecycle() -> None:
         "scenarios/basic-web-lab.yaml"
     )
 
-    network_name = "pyrange-basic-web-lab-lab-net"
-    web_container = "pyrange-basic-web-lab-web"
-    analyst_container = "pyrange-basic-web-lab-analyst"
+    network_name = (
+        "pyrange-v2-network-"
+        "5b70c90f2ef42c0bbb53ef371a3eb36f92f8e085d658aca24c9b24abb885b289"
+    )
+    web_container = (
+        "pyrange-v2-container-"
+        "3969cf8bdfdea9ed8848e1d514f1e25788f90a81a7a2f918fe961a4588b318f5"
+    )
+    analyst_container = (
+        "pyrange-v2-container-"
+        "fe292e84433c0f01d4f2189d4fd9a6bb1d88425965cbf530798c472fe4707c54"
+    )
 
     try:
         start_lab(scenario)

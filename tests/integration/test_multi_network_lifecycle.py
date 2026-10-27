@@ -53,15 +53,20 @@ def test_segmented_lab_multi_network_lifecycle() -> None:
     )
 
     public_network = (
-        "pyrange-segmented-lab-public-net"
+        "pyrange-v2-network-"
+        "e766ac61206c7ae3d71571ae1872401af69f7d756d5e2d1c52b6e99a8d7dda8d"
     )
     private_network = (
-        "pyrange-segmented-lab-private-net"
+        "pyrange-v2-network-"
+        "9b692d460dc781424b243d45281ac928e348d8f82fc6266ed6bf44477bec2027"
     )
-
-    web_container = "pyrange-segmented-lab-web"
+    web_container = (
+        "pyrange-v2-container-"
+        "12ac3acb9b451ad60efb6ba7e0fda1ce7ddf48c60ec26104388a769622d55d8c"
+    )
     analyst_container = (
-        "pyrange-segmented-lab-analyst"
+        "pyrange-v2-container-"
+        "9570b0024cb6a01a4921131433a5dc16830e6ea15fe4ba55b1c94c3298d37427"
     )
 
     try:

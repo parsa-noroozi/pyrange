@@ -46,6 +46,14 @@ class DockerOperationError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class DockerResourceIdentity:
+    resource_id: str
+    labels: dict[str, str] | None
+
+
+
+
+@dataclass(frozen=True)
 class ContainerCommandResult:
     exit_code: int
     stdout: str
@@ -125,6 +133,60 @@ def _load_single_inspect_object(
         )
 
     return payload[0]
+
+
+def inspect_container_identity(
+    reference: str,
+) -> DockerResourceIdentity:
+    result = _run_docker_query(
+        [
+            "docker",
+            "container",
+            "inspect",
+            reference,
+        ],
+        f"Failed to inspect Docker container '{reference}'.",
+    )
+
+    payload = _load_single_inspect_object(
+        result.stdout,
+        f"container '{reference}'",
+    )
+
+    resource_id = payload.get("Id")
+    config = payload.get("Config")
+
+    if (
+        not isinstance(resource_id, str)
+        or len(resource_id) != 64
+        or any(
+            character not in "0123456789abcdef"
+            for character in resource_id
+        )
+        or not isinstance(config, dict)
+    ):
+        raise DockerOperationError(
+            "Docker returned invalid identity data for "
+            f"container '{reference}'."
+        )
+
+    labels = config.get("Labels")
+
+    if labels is not None:
+        if not isinstance(labels, dict) or any(
+            not isinstance(key, str)
+            or not isinstance(value, str)
+            for key, value in labels.items()
+        ):
+            raise DockerOperationError(
+                "Docker returned invalid ownership labels for "
+                f"container '{reference}'."
+            )
+
+    return DockerResourceIdentity(
+        resource_id=resource_id,
+        labels=None if labels is None else dict(labels),
+    )
 
 
 def inspect_container_runtime(
@@ -457,20 +519,35 @@ def get_image_id(image_ref: str) -> str:
     return image_id
 
 
-def create_network(name: str, subnet: str) -> str:
+def create_network(
+    name: str,
+    subnet: str,
+    *,
+    labels: dict[str, str] | None = None,
+) -> str:
+    command = [
+        "docker",
+        "network",
+        "create",
+        "--driver",
+        "bridge",
+        "--subnet",
+        subnet,
+        "--internal",
+    ]
+
+    if labels is not None:
+        for key, value in sorted(labels.items()):
+            command.extend([
+                "--label",
+                f"{key}={value}",
+            ])
+
+    command.append(name)
+
     try:
         result = subprocess.run(
-            [
-                "docker",
-                "network",
-                "create",
-                "--driver",
-                "bridge",
-                "--subnet",
-                subnet,
-                "--internal",
-                name,
-            ],
+            command,
             capture_output=True,
             text=True,
             check=True,
@@ -551,22 +628,37 @@ def create_container(
     image: str,
     network: str,
     ip: str,
+    *,
+    labels: dict[str, str] | None = None,
 ) -> str:
+    container_labels = {
+        "pyrange.managed": "true",
+    }
+    if labels is not None:
+        container_labels.update(labels)
+
+    command = [
+        "docker",
+        "create",
+        "--name",
+        name,
+        "--network",
+        network,
+        "--ip",
+        ip,
+    ]
+
+    for key, value in sorted(container_labels.items()):
+        command.extend([
+            "--label",
+            f"{key}={value}",
+        ])
+
+    command.append(image)
+
     try:
         result = subprocess.run(
-            [
-                "docker",
-                "create",
-                "--name",
-                name,
-                "--network",
-                network,
-                "--ip",
-                ip,
-                "--label",
-                "pyrange.managed=true",
-                image,
-            ],
+            command,
             capture_output=True,
             text=True,
             check=True,

@@ -27,6 +27,37 @@ from pyrange.models import (
 )
 
 
+PUBLIC_NETWORK_NAME = (
+    "pyrange-v2-network-"
+    "e766ac61206c7ae3d71571ae1872401af69f7d756d5e2d1c52b6e99a8d7dda8d"
+)
+
+PRIVATE_NETWORK_NAME = (
+    "pyrange-v2-network-"
+    "9b692d460dc781424b243d45281ac928e348d8f82fc6266ed6bf44477bec2027"
+)
+
+WEB_CONTAINER_NAME = (
+    "pyrange-v2-container-"
+    "12ac3acb9b451ad60efb6ba7e0fda1ce7ddf48c60ec26104388a769622d55d8c"
+)
+
+ANALYST_CONTAINER_NAME = (
+    "pyrange-v2-container-"
+    "9570b0024cb6a01a4921131433a5dc16830e6ea15fe4ba55b1c94c3298d37427"
+)
+
+HEALTH_CONTAINER_NAME = (
+    "pyrange-v2-container-"
+    "9b77efaddb94ee8f01b27814bdc79bf6af6aaeec5d88162ba7729f4edb1700d8"
+)
+
+HEALTH_NETWORK_NAME = (
+    "pyrange-v2-network-"
+    "6e20c278f595f82abc7c7a38897d446ba443a096f542855b7861f9c1bda89fb4"
+)
+
+
 RUN_ID = UUID(
     "44444444-4444-4444-8444-444444444444"
 )
@@ -228,7 +259,7 @@ def test_start_lab_emits_ordered_lifecycle_events(
     assert analyst_attachments[0].attributes == {
         "network": "public-net",
         "runtime_network": (
-            "pyrange-segmented-lab-public-net"
+            PUBLIC_NETWORK_NAME
         ),
         "ip": "172.28.10.20",
         "primary": True,
@@ -237,7 +268,7 @@ def test_start_lab_emits_ordered_lifecycle_events(
     assert analyst_attachments[1].attributes == {
         "network": "private-net",
         "runtime_network": (
-            "pyrange-segmented-lab-private-net"
+            PRIVATE_NETWORK_NAME
         ),
         "ip": "172.28.20.20",
         "primary": False,
@@ -415,11 +446,11 @@ def test_health_failure_remains_primary_when_event_logging_fails(
         )
 
     mock_remove_container.assert_called_once_with(
-        "pyrange-health-lab-web"
+        HEALTH_CONTAINER_NAME
     )
 
     mock_remove_network.assert_called_once_with(
-        "pyrange-health-lab-lab-net"
+        HEALTH_NETWORK_NAME
     )
 
     notes = getattr(
@@ -557,12 +588,12 @@ def test_start_lab_rolls_back_when_event_sink_fails(
         )
 
     mock_remove_container.assert_called_once_with(
-        "pyrange-segmented-lab-web"
+        WEB_CONTAINER_NAME
     )
 
     assert mock_remove_network.call_args_list == [
-        call("pyrange-segmented-lab-private-net"),
-        call("pyrange-segmented-lab-public-net"),
+        call(PRIVATE_NETWORK_NAME),
+        call(PUBLIC_NETWORK_NAME),
     ]
 
     assert [
@@ -676,13 +707,13 @@ def test_stop_lab_records_resource_failures(
         )
 
     assert mock_remove_container.call_args_list == [
-        call("pyrange-segmented-lab-analyst"),
-        call("pyrange-segmented-lab-web"),
+        call(ANALYST_CONTAINER_NAME),
+        call(WEB_CONTAINER_NAME),
     ]
 
     assert mock_remove_network.call_args_list == [
-        call("pyrange-segmented-lab-private-net"),
-        call("pyrange-segmented-lab-public-net"),
+        call(PRIVATE_NETWORK_NAME),
+        call(PUBLIC_NETWORK_NAME),
     ]
 
     assert [
@@ -730,13 +761,13 @@ def test_stop_lab_continues_cleanup_after_event_failure(
         )
 
     assert mock_remove_container.call_args_list == [
-        call("pyrange-segmented-lab-analyst"),
-        call("pyrange-segmented-lab-web"),
+        call(ANALYST_CONTAINER_NAME),
+        call(WEB_CONTAINER_NAME),
     ]
 
     assert mock_remove_network.call_args_list == [
-        call("pyrange-segmented-lab-private-net"),
-        call("pyrange-segmented-lab-public-net"),
+        call(PRIVATE_NETWORK_NAME),
+        call(PUBLIC_NETWORK_NAME),
     ]
 
     assert [
@@ -790,13 +821,13 @@ def test_stop_lab_continues_cleanup_when_requested_event_fails(
         )
 
     assert mock_remove_container.call_args_list == [
-        call("pyrange-segmented-lab-analyst"),
-        call("pyrange-segmented-lab-web"),
+        call(ANALYST_CONTAINER_NAME),
+        call(WEB_CONTAINER_NAME),
     ]
 
     assert mock_remove_network.call_args_list == [
-        call("pyrange-segmented-lab-private-net"),
-        call("pyrange-segmented-lab-public-net"),
+        call(PRIVATE_NETWORK_NAME),
+        call(PUBLIC_NETWORK_NAME),
     ]
 
     assert [

@@ -179,10 +179,26 @@ def test_start_lab_creates_multi_network_topology(
         call(
             PUBLIC_NETWORK_NAME,
             "172.28.10.0/24",
+            labels={
+                "pyrange.managed": "true",
+                "pyrange.ownership.version": "1",
+                "pyrange.resource.kind": "network",
+                "pyrange.scenario.name": "segmented-lab",
+                "pyrange.resource.name": "public-net",
+                "pyrange.resource.identity": PUBLIC_NETWORK_NAME,
+            },
         ),
         call(
             PRIVATE_NETWORK_NAME,
             "172.28.20.0/24",
+            labels={
+                "pyrange.managed": "true",
+                "pyrange.ownership.version": "1",
+                "pyrange.resource.kind": "network",
+                "pyrange.scenario.name": "segmented-lab",
+                "pyrange.resource.name": "private-net",
+                "pyrange.resource.identity": PRIVATE_NETWORK_NAME,
+            },
         ),
     ]
 
@@ -190,18 +206,30 @@ def test_start_lab_creates_multi_network_topology(
         call(
             name=WEB_CONTAINER_NAME,
             image="nginx:alpine",
-            network=(
-                PUBLIC_NETWORK_NAME
-            ),
+            network=PUBLIC_NETWORK_NAME,
             ip="172.28.10.10",
+            labels={
+                "pyrange.managed": "true",
+                "pyrange.ownership.version": "1",
+                "pyrange.resource.kind": "container",
+                "pyrange.scenario.name": "segmented-lab",
+                "pyrange.resource.name": "web",
+                "pyrange.resource.identity": WEB_CONTAINER_NAME,
+            },
         ),
         call(
             name=ANALYST_CONTAINER_NAME,
             image="alpine:latest",
-            network=(
-                PUBLIC_NETWORK_NAME
-            ),
+            network=PUBLIC_NETWORK_NAME,
             ip="172.28.10.20",
+            labels={
+                "pyrange.managed": "true",
+                "pyrange.ownership.version": "1",
+                "pyrange.resource.kind": "container",
+                "pyrange.scenario.name": "segmented-lab",
+                "pyrange.resource.name": "analyst",
+                "pyrange.resource.identity": ANALYST_CONTAINER_NAME,
+            },
         ),
     ]
 

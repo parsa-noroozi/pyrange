@@ -17,6 +17,7 @@ from pyrange.engine.events import (
 )
 from pyrange.engine.health import evaluate_health_check
 from pyrange.engine.naming import build_resource_name
+from pyrange.engine.ownership import build_ownership_labels
 from pyrange.models import (
     MachineConfig,
     NetworkConfig,
@@ -173,6 +174,11 @@ def start_lab(
             create_network(
                 network_name,
                 str(network.subnet),
+                labels=build_ownership_labels(
+                    kind="network",
+                    scenario_name=scenario.name,
+                    resource_name=network.name,
+                ),
             )
 
             created_networks.append(
@@ -209,6 +215,11 @@ def start_lab(
                 image=machine.image,
                 network=primary_network_name,
                 ip=str(primary_interface.ip),
+                labels=build_ownership_labels(
+                    kind="container",
+                    scenario_name=scenario.name,
+                    resource_name=machine.name,
+                ),
             )
 
             created_containers.append(

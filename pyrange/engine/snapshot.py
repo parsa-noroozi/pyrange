@@ -21,6 +21,7 @@ from pyrange.engine.manager import (
     get_lab_container_name,
     get_lab_network_name,
 )
+from pyrange.engine.naming import build_resource_name
 from pyrange.models import (
     MachineConfig,
     ScenarioConfig,
@@ -169,16 +170,19 @@ def get_snapshot_image_ref(
     machine: MachineConfig,
     snapshot_name: str,
 ) -> str:
-    if not _SNAPSHOT_NAME_PATTERN.fullmatch(
-        snapshot_name
-    ):
+    if not _SNAPSHOT_NAME_PATTERN.fullmatch(snapshot_name):
         raise ValueError(
             "snapshot name must be a valid Docker tag"
         )
 
+    repository_name = build_resource_name(
+        kind="snapshot",
+        scenario_name=scenario.name,
+        resource_name=machine.name,
+    )
+
     return (
-        f"pyrange-snapshots/"
-        f"{scenario.name}-{machine.name}:"
+        f"pyrange-snapshots/{repository_name}:"
         f"{snapshot_name}"
     )
 

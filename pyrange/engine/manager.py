@@ -16,6 +16,7 @@ from pyrange.engine.events import (
     EventResource,
 )
 from pyrange.engine.health import evaluate_health_check
+from pyrange.engine.naming import build_resource_name
 from pyrange.models import (
     MachineConfig,
     NetworkConfig,
@@ -31,14 +32,22 @@ def get_lab_network_name(
     scenario: ScenarioConfig,
     network: NetworkConfig,
 ) -> str:
-    return f"pyrange-{scenario.name}-{network.name}"
+    return build_resource_name(
+        kind="network",
+        scenario_name=scenario.name,
+        resource_name=network.name,
+    )
 
 
 def get_lab_container_name(
     scenario: ScenarioConfig,
     machine: MachineConfig,
 ) -> str:
-    return f"pyrange-{scenario.name}-{machine.name}"
+    return build_resource_name(
+        kind="container",
+        scenario_name=scenario.name,
+        resource_name=machine.name,
+    )
 
 
 def _validate_recorder(

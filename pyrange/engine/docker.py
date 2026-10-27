@@ -457,20 +457,35 @@ def get_image_id(image_ref: str) -> str:
     return image_id
 
 
-def create_network(name: str, subnet: str) -> str:
+def create_network(
+    name: str,
+    subnet: str,
+    *,
+    labels: dict[str, str] | None = None,
+) -> str:
+    command = [
+        "docker",
+        "network",
+        "create",
+        "--driver",
+        "bridge",
+        "--subnet",
+        subnet,
+        "--internal",
+    ]
+
+    if labels is not None:
+        for key, value in sorted(labels.items()):
+            command.extend([
+                "--label",
+                f"{key}={value}",
+            ])
+
+    command.append(name)
+
     try:
         result = subprocess.run(
-            [
-                "docker",
-                "network",
-                "create",
-                "--driver",
-                "bridge",
-                "--subnet",
-                subnet,
-                "--internal",
-                name,
-            ],
+            command,
             capture_output=True,
             text=True,
             check=True,
@@ -551,22 +566,37 @@ def create_container(
     image: str,
     network: str,
     ip: str,
+    *,
+    labels: dict[str, str] | None = None,
 ) -> str:
+    container_labels = {
+        "pyrange.managed": "true",
+    }
+    if labels is not None:
+        container_labels.update(labels)
+
+    command = [
+        "docker",
+        "create",
+        "--name",
+        name,
+        "--network",
+        network,
+        "--ip",
+        ip,
+    ]
+
+    for key, value in sorted(container_labels.items()):
+        command.extend([
+            "--label",
+            f"{key}={value}",
+        ])
+
+    command.append(image)
+
     try:
         result = subprocess.run(
-            [
-                "docker",
-                "create",
-                "--name",
-                name,
-                "--network",
-                network,
-                "--ip",
-                ip,
-                "--label",
-                "pyrange.managed=true",
-                image,
-            ],
+            command,
             capture_output=True,
             text=True,
             check=True,

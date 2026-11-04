@@ -20,6 +20,11 @@ from pyrange.engine.events import (
     EventResource,
 )
 from pyrange.engine.health import evaluate_health_check
+from pyrange.engine.legacy import (
+    describe_candidate,
+    require_no_legacy_resources,
+    scan_legacy_resources,
+)
 from pyrange.engine.naming import build_resource_name
 from pyrange.engine.ownership import (
     ResourceOwnershipError,
@@ -209,6 +214,7 @@ def start_lab(
     }
 
     try:
+        require_no_legacy_resources(scenario)
         for network in scenario.networks:
             network_name = network_names[network.name]
 
@@ -551,6 +557,40 @@ def stop_lab(
         event_errors,
         "lab.stop.requested",
     )
+
+    legacy_scan = scan_legacy_resources(scenario)
+    for candidate in legacy_scan.candidates:
+        errors.append(describe_candidate(candidate))
+        _record_stop_event(
+            recorder, event_errors, "resource.legacy.detected",
+            outcome="failure",
+            resource=EventResource(
+                type="machine" if candidate.kind == "container" else candidate.kind,
+                name=candidate.logical_name,
+            ),
+            attributes={
+                "runtime_name": candidate.runtime_name,
+                "runtime_id": candidate.resource_id,
+                "ownership_verified": False,
+            },
+        )
+    for failure in legacy_scan.failures:
+        errors.append(
+            f"Could not check legacy {failure.kind} name "
+            f"'{failure.runtime_name}': {failure.error}"
+        )
+        _record_stop_event(
+            recorder, event_errors, "legacy.discovery.failed",
+            outcome="failure",
+            resource=EventResource(
+                type="machine" if failure.kind == "container" else failure.kind,
+                name=failure.logical_name,
+            ),
+            attributes={
+                "runtime_name": failure.runtime_name,
+                "error_type": type(failure.error).__name__,
+            },
+        )
 
     for machine in reversed(scenario.machines):
         container_name = get_lab_container_name(

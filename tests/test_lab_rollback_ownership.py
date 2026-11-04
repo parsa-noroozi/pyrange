@@ -10,6 +10,9 @@ from pyrange.engine.manager import get_lab_container_name, get_lab_network_name,
 from pyrange.models import MachineConfig, NetworkConfig, NetworkInterfaceConfig, ScenarioConfig
 
 
+pytestmark = pytest.mark.usefixtures("no_legacy_resources")
+
+
 class RecordingSink:
     def __init__(self, fail_on=None):
         self.events = []

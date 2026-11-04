@@ -11,6 +11,9 @@ from pyrange.engine.snapshot import SnapshotError, create_machine_snapshot, rest
 from pyrange.models import MachineConfig, NetworkConfig, NetworkInterfaceConfig, ScenarioConfig
 
 
+pytestmark = pytest.mark.usefixtures("no_legacy_resources")
+
+
 class Sink:
     def __init__(self):
         self.events = []

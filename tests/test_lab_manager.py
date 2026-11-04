@@ -24,6 +24,9 @@ from pyrange.models import (
 )
 
 
+pytestmark = pytest.mark.usefixtures("no_legacy_resources")
+
+
 PUBLIC_NETWORK_NAME = (
     "pyrange-v2-network-"
     "e766ac61206c7ae3d71571ae1872401af69f7d756d5e2d1c52b6e99a8d7dda8d"

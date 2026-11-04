@@ -22,6 +22,9 @@ from pyrange.models import (
 )
 
 
+pytestmark = pytest.mark.usefixtures("no_legacy_resources")
+
+
 WEB_CONTAINER_NAME = (
     "pyrange-v2-container-"
     "a72b1735188af3b6fc188ccb131308e2549b3cdb40bb59c2ff48eb58e5ff4b2b"

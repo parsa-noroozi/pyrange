@@ -22,6 +22,7 @@ from pyrange.engine.manager import (
     get_lab_container_name,
     get_lab_network_name,
 )
+from pyrange.engine.legacy import require_no_legacy_resources
 from pyrange.engine.naming import build_resource_name
 from pyrange.engine.ownership import build_ownership_labels, verify_resource_ownership
 from pyrange.models import (
@@ -235,6 +236,7 @@ def create_machine_snapshot(
     )
 
     try:
+        require_no_legacy_resources(scenario, machine=machine, snapshot_name=snapshot_name)
         if find_image_identity(image_ref) is not None:
             raise SnapshotError(f"Snapshot reference already exists: '{image_ref}'.")
         container = find_container_identity(container_name)
@@ -375,6 +377,7 @@ def restore_machine_snapshot(
     stage = "preflight"
 
     try:
+        require_no_legacy_resources(scenario, machine=machine, snapshot_name=snapshot_name)
         image = find_image_identity(image_ref)
         if image is None:
             raise SnapshotError(f"Snapshot image is absent: '{image_ref}'.")

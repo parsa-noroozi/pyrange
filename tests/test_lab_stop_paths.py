@@ -22,6 +22,9 @@ from pyrange.models import (
 )
 
 
+pytestmark = pytest.mark.usefixtures("no_legacy_resources")
+
+
 CONTAINER_ID = "a" * 64
 NETWORK_ID = "b" * 64
 

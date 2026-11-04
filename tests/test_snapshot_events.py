@@ -28,6 +28,9 @@ from pyrange.models import (
 )
 
 
+pytestmark = pytest.mark.usefixtures("no_legacy_resources")
+
+
 RUN_ID = UUID(
     "55555555-5555-4555-8555-555555555555"
 )

@@ -62,3 +62,14 @@ def snapshot_resources():
             container=container, image=image,
             find_container=find_container, find_image=find_image,
         )
+
+
+@pytest.fixture
+def no_legacy_resources():
+    """Model successful legacy lookups with no matches in focused unit tests."""
+    with (
+        patch("pyrange.engine.legacy.find_container_identity", return_value=None),
+        patch("pyrange.engine.legacy.find_network_identity", return_value=None),
+        patch("pyrange.engine.legacy.find_image_identity", return_value=None),
+    ):
+        yield

@@ -13,6 +13,9 @@ from pyrange.models import (
 )
 
 
+pytestmark = pytest.mark.usefixtures("no_legacy_resources")
+
+
 @pytest.fixture
 def scenario() -> ScenarioConfig:
     return ScenarioConfig(

@@ -8,6 +8,8 @@ from pyrange.engine.docker import (
     create_network,
     find_container_identity,
     find_network_identity,
+    inspect_container_identity,
+    inspect_network_identity,
     remove_container,
     remove_network,
     start_container,
@@ -142,6 +144,39 @@ def _record_stop_event(
         event_errors.append(event_error)
 
 
+def _verify_rollback_identity(
+    resource_id: str,
+    *,
+    kind: str,
+    scenario_name: str,
+    resource_name: str,
+) -> None:
+    # Never resolve a creation ID through a possibly reused runtime name.
+    if (
+        not isinstance(resource_id, str)
+        or len(resource_id) != 64
+        or any(character not in "0123456789abcdef" for character in resource_id)
+    ):
+        raise ResourceOwnershipError("Invalid resource ID recorded during creation.")
+
+    if kind == "container":
+        identity = inspect_container_identity(resource_id)
+    elif kind == "network":
+        identity = inspect_network_identity(resource_id)
+    else:
+        raise ValueError("unsupported rollback resource kind")
+
+    if identity.resource_id != resource_id:
+        raise ResourceOwnershipError("Rollback inspection returned a different resource ID.")
+
+    verify_resource_ownership(
+        identity.labels,
+        kind=kind,
+        scenario_name=scenario_name,
+        resource_name=resource_name,
+    )
+
+
 def start_lab(
     scenario: ScenarioConfig,
     *,
@@ -159,10 +194,10 @@ def start_lab(
     )
 
     created_networks: list[
-        tuple[NetworkConfig, str]
+        tuple[NetworkConfig, str, str]
     ] = []
     created_containers: list[
-        tuple[MachineConfig, str]
+        tuple[MachineConfig, str, str]
     ] = []
 
     network_names = {
@@ -177,7 +212,7 @@ def start_lab(
         for network in scenario.networks:
             network_name = network_names[network.name]
 
-            create_network(
+            network_id = create_network(
                 network_name,
                 str(network.subnet),
                 labels=build_ownership_labels(
@@ -188,7 +223,7 @@ def start_lab(
             )
 
             created_networks.append(
-                (network, network_name)
+                (network, network_name, network_id)
             )
 
             _emit_event(
@@ -216,7 +251,7 @@ def start_lab(
                 primary_interface.network
             ]
 
-            create_container(
+            container_id = create_container(
                 name=container_name,
                 image=machine.image,
                 network=primary_network_name,
@@ -229,7 +264,7 @@ def start_lab(
             )
 
             created_containers.append(
-                (machine, container_name)
+                (machine, container_name, container_id)
             )
 
             _emit_event(
@@ -383,13 +418,23 @@ def start_lab(
     except Exception as exc:
         rollback_errors = 0
 
-        for machine, container_name in reversed(
+        for machine, container_name, container_id in reversed(
             created_containers
         ):
             try:
-                remove_container(container_name)
+                _verify_rollback_identity(
+                    container_id,
+                    kind="container",
+                    scenario_name=scenario.name,
+                    resource_name=machine.name,
+                )
+                remove_container(container_id)
             except Exception as cleanup_error:
                 rollback_errors += 1
+                exc.add_note(
+                    f"Rollback failed for container '{container_name}' "
+                    f"(ID {container_id}): {cleanup_error}"
+                )
 
                 _emit_failure_path_event(
                     recorder,
@@ -422,13 +467,23 @@ def start_lab(
                     },
                 )
 
-        for network, network_name in reversed(
+        for network, network_name, network_id in reversed(
             created_networks
         ):
             try:
-                remove_network(network_name)
+                _verify_rollback_identity(
+                    network_id,
+                    kind="network",
+                    scenario_name=scenario.name,
+                    resource_name=network.name,
+                )
+                remove_network(network_id)
             except Exception as cleanup_error:
                 rollback_errors += 1
+                exc.add_note(
+                    f"Rollback failed for network '{network_name}' "
+                    f"(ID {network_id}): {cleanup_error}"
+                )
 
                 _emit_failure_path_event(
                     recorder,

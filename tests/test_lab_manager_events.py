@@ -275,7 +275,9 @@ def test_start_lab_emits_ordered_lifecycle_events(
     mock_connect_container_to_network,
     mock_start_container,
     scenario: ScenarioConfig,
+    rollback_resources,
 ) -> None:
+    rollback_resources.configure(mock_create_network, mock_create_container, scenario)
     sink = CollectingSink()
     recorder = make_recorder(
         scenario.name,
@@ -356,7 +358,9 @@ def test_start_lab_emits_health_passed_without_output(
     mock_start_container,
     mock_evaluate_health_check,
     health_scenario: ScenarioConfig,
+    rollback_resources,
 ) -> None:
+    rollback_resources.configure(mock_create_network, mock_create_container, health_scenario)
     mock_evaluate_health_check.return_value = (
         HealthCheckResult(
             healthy=True,
@@ -413,7 +417,9 @@ def test_start_lab_emits_health_failure_and_rollback(
     mock_remove_container,
     mock_remove_network,
     health_scenario: ScenarioConfig,
+    rollback_resources,
 ) -> None:
+    rollback_resources.configure(mock_create_network, mock_create_container, health_scenario)
     mock_evaluate_health_check.return_value = (
         HealthCheckResult(
             healthy=False,
@@ -484,7 +490,9 @@ def test_health_failure_remains_primary_when_event_logging_fails(
     mock_remove_container,
     mock_remove_network,
     health_scenario: ScenarioConfig,
+    rollback_resources,
 ) -> None:
+    rollback_resources.configure(mock_create_network, mock_create_container, health_scenario)
     mock_evaluate_health_check.return_value = (
         HealthCheckResult(
             healthy=False,
@@ -515,11 +523,11 @@ def test_health_failure_remains_primary_when_event_logging_fails(
         )
 
     mock_remove_container.assert_called_once_with(
-        HEALTH_CONTAINER_NAME
+        rollback_resources.ids[HEALTH_CONTAINER_NAME]
     )
 
     mock_remove_network.assert_called_once_with(
-        HEALTH_NETWORK_NAME
+        rollback_resources.ids[HEALTH_NETWORK_NAME]
     )
 
     notes = getattr(
@@ -568,7 +576,9 @@ def test_start_lab_records_rollback_cleanup_failure(
     mock_remove_container,
     mock_remove_network,
     health_scenario: ScenarioConfig,
+    rollback_resources,
 ) -> None:
+    rollback_resources.configure(mock_create_network, mock_create_container, health_scenario)
     mock_evaluate_health_check.return_value = (
         HealthCheckResult(
             healthy=False,
@@ -636,7 +646,9 @@ def test_start_lab_rolls_back_when_event_sink_fails(
     mock_remove_container,
     mock_remove_network,
     scenario: ScenarioConfig,
+    rollback_resources,
 ) -> None:
+    rollback_resources.configure(mock_create_network, mock_create_container, scenario)
     sink = FailingEventSink(
         "machine.created"
     )
@@ -657,12 +669,12 @@ def test_start_lab_rolls_back_when_event_sink_fails(
         )
 
     mock_remove_container.assert_called_once_with(
-        WEB_CONTAINER_NAME
+        rollback_resources.ids[WEB_CONTAINER_NAME]
     )
 
     assert mock_remove_network.call_args_list == [
-        call(PRIVATE_NETWORK_NAME),
-        call(PUBLIC_NETWORK_NAME),
+        call(rollback_resources.ids[PRIVATE_NETWORK_NAME]),
+        call(rollback_resources.ids[PUBLIC_NETWORK_NAME]),
     ]
 
     assert [

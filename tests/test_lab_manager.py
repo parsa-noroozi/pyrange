@@ -174,7 +174,9 @@ def test_start_lab_creates_multi_network_topology(
     mock_connect_container_to_network,
     mock_start_container,
     scenario: ScenarioConfig,
+    rollback_resources,
 ) -> None:
+    rollback_resources.configure(mock_create_network, mock_create_container, scenario)
     start_lab(scenario)
 
     assert mock_create_network.call_args_list == [
@@ -264,7 +266,9 @@ def test_start_lab_rolls_back_multi_network_failure(
     mock_remove_container,
     mock_remove_network,
     scenario: ScenarioConfig,
+    rollback_resources,
 ) -> None:
+    rollback_resources.configure(mock_create_network, mock_create_container, scenario)
     mock_connect_container_to_network.side_effect = (
         DockerOperationError(
             "failed to connect network"
@@ -278,13 +282,13 @@ def test_start_lab_rolls_back_multi_network_failure(
         start_lab(scenario)
 
     assert mock_remove_container.call_args_list == [
-        call(ANALYST_CONTAINER_NAME),
-        call(WEB_CONTAINER_NAME),
+        call(rollback_resources.ids[ANALYST_CONTAINER_NAME]),
+        call(rollback_resources.ids[WEB_CONTAINER_NAME]),
     ]
 
     assert mock_remove_network.call_args_list == [
-        call(PRIVATE_NETWORK_NAME),
-        call(PUBLIC_NETWORK_NAME),
+        call(rollback_resources.ids[PRIVATE_NETWORK_NAME]),
+        call(rollback_resources.ids[PUBLIC_NETWORK_NAME]),
     ]
 
 
@@ -387,7 +391,9 @@ def test_start_lab_evaluates_machine_health_check(
     mock_start_container,
     mock_evaluate_health_check,
     health_scenario: ScenarioConfig,
+    rollback_resources,
 ) -> None:
+    rollback_resources.configure(mock_create_network, mock_create_container, health_scenario)
     mock_evaluate_health_check.return_value = (
         HealthCheckResult(
             healthy=True,
@@ -424,7 +430,9 @@ def test_start_lab_rolls_back_unhealthy_machine(
     mock_remove_container,
     mock_remove_network,
     health_scenario: ScenarioConfig,
+    rollback_resources,
 ) -> None:
+    rollback_resources.configure(mock_create_network, mock_create_container, health_scenario)
     mock_evaluate_health_check.return_value = (
         HealthCheckResult(
             healthy=False,
@@ -442,11 +450,11 @@ def test_start_lab_rolls_back_unhealthy_machine(
         start_lab(health_scenario)
 
     mock_remove_container.assert_called_once_with(
-        HEALTH_CONTAINER_NAME
+        rollback_resources.ids[HEALTH_CONTAINER_NAME]
     )
 
     mock_remove_network.assert_called_once_with(
-        HEALTH_NETWORK_NAME
+        rollback_resources.ids[HEALTH_NETWORK_NAME]
     )
 
 
@@ -465,7 +473,9 @@ def test_start_lab_runs_health_checks_after_all_containers_start(
     mock_start_container,
     mock_evaluate_health_check,
     scenario: ScenarioConfig,
+    rollback_resources,
 ) -> None:
+    rollback_resources.configure(mock_create_network, mock_create_container, scenario)
     scenario.machines[0].health_check = HealthCheckConfig(
         command=["health-check"],
         retries=0,

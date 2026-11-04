@@ -6,6 +6,7 @@ from pyrange.engine import (
     DockerOperationError,
     HealthCheckResult,
 )
+from pyrange.engine.docker import DockerResourceIdentity
 from pyrange.engine.manager import (
     LabManagerError,
     get_lab_container_name,
@@ -13,6 +14,7 @@ from pyrange.engine.manager import (
     start_lab,
     stop_lab,
 )
+from pyrange.engine.ownership import build_ownership_labels
 from pyrange.models import (
     HealthCheckConfig,
     MachineConfig,
@@ -293,16 +295,85 @@ def test_stop_lab_removes_resources_in_reverse_order(
     mock_remove_network,
     scenario: ScenarioConfig,
 ) -> None:
-    stop_lab(scenario)
+    web_id = "a" * 64
+    analyst_id = "b" * 64
+    public_id = "c" * 64
+    private_id = "d" * 64
 
-    assert mock_remove_container.call_args_list == [
+    containers = {
+        WEB_CONTAINER_NAME: DockerResourceIdentity(
+            resource_id=web_id,
+            labels=build_ownership_labels(
+                kind="container",
+                scenario_name="segmented-lab",
+                resource_name="web",
+            ),
+        ),
+        ANALYST_CONTAINER_NAME: DockerResourceIdentity(
+            resource_id=analyst_id,
+            labels=build_ownership_labels(
+                kind="container",
+                scenario_name="segmented-lab",
+                resource_name="analyst",
+            ),
+        ),
+    }
+
+    networks = {
+        PUBLIC_NETWORK_NAME: DockerResourceIdentity(
+            resource_id=public_id,
+            labels=build_ownership_labels(
+                kind="network",
+                scenario_name="segmented-lab",
+                resource_name="public-net",
+            ),
+        ),
+        PRIVATE_NETWORK_NAME: DockerResourceIdentity(
+            resource_id=private_id,
+            labels=build_ownership_labels(
+                kind="network",
+                scenario_name="segmented-lab",
+                resource_name="private-net",
+            ),
+        ),
+    }
+
+    with (
+        patch(
+            "pyrange.engine.manager.find_container_identity",
+            side_effect=containers.__getitem__,
+        ) as mock_find_container,
+        patch(
+            "pyrange.engine.manager.find_network_identity",
+            side_effect=networks.__getitem__,
+        ) as mock_find_network,
+        patch(
+            "pyrange.engine.docker.subprocess.run",
+            side_effect=AssertionError(
+                "This unit test must not execute Docker."
+            ),
+        ),
+    ):
+        stop_lab(scenario)
+
+    assert mock_find_container.call_args_list == [
         call(ANALYST_CONTAINER_NAME),
         call(WEB_CONTAINER_NAME),
     ]
 
-    assert mock_remove_network.call_args_list == [
+    assert mock_find_network.call_args_list == [
         call(PRIVATE_NETWORK_NAME),
         call(PUBLIC_NETWORK_NAME),
+    ]
+
+    assert mock_remove_container.call_args_list == [
+        call(analyst_id),
+        call(web_id),
+    ]
+
+    assert mock_remove_network.call_args_list == [
+        call(private_id),
+        call(public_id),
     ]
     
     

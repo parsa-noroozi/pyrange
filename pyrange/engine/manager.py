@@ -6,6 +6,8 @@ from pyrange.engine.docker import (
     connect_container_to_network,
     create_container,
     create_network,
+    find_container_identity,
+    find_network_identity,
     remove_container,
     remove_network,
     start_container,
@@ -17,7 +19,11 @@ from pyrange.engine.events import (
 )
 from pyrange.engine.health import evaluate_health_check
 from pyrange.engine.naming import build_resource_name
-from pyrange.engine.ownership import build_ownership_labels
+from pyrange.engine.ownership import (
+    ResourceOwnershipError,
+    build_ownership_labels,
+    verify_resource_ownership,
+)
 from pyrange.models import (
     MachineConfig,
     NetworkConfig,
@@ -498,10 +504,35 @@ def stop_lab(
         )
 
         try:
-            remove_container(container_name)
+            identity = find_container_identity(container_name)
+
+            if identity is None:
+                _record_stop_event(
+                    recorder,
+                    event_errors,
+                    "machine.absent",
+                    resource=EventResource(
+                        type="machine",
+                        name=machine.name,
+                    ),
+                    attributes={
+                        "runtime_name": container_name,
+                    },
+                )
+                continue
+
+            verify_resource_ownership(
+                identity.labels,
+                kind="container",
+                scenario_name=scenario.name,
+                resource_name=machine.name,
+            )
+
+            remove_container(identity.resource_id)
         except (
             DockerOperationError,
             DockerUnavailableError,
+            ResourceOwnershipError,
         ) as exc:
             errors.append(str(exc))
 
@@ -541,10 +572,35 @@ def stop_lab(
         )
 
         try:
-            remove_network(network_name)
+            identity = find_network_identity(network_name)
+
+            if identity is None:
+                _record_stop_event(
+                    recorder,
+                    event_errors,
+                    "network.absent",
+                    resource=EventResource(
+                        type="network",
+                        name=network.name,
+                    ),
+                    attributes={
+                        "runtime_name": network_name,
+                    },
+                )
+                continue
+
+            verify_resource_ownership(
+                identity.labels,
+                kind="network",
+                scenario_name=scenario.name,
+                resource_name=network.name,
+            )
+
+            remove_network(identity.resource_id)
         except (
             DockerOperationError,
             DockerUnavailableError,
+            ResourceOwnershipError,
         ) as exc:
             errors.append(str(exc))
 

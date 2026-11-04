@@ -8,6 +8,7 @@ from typer.testing import CliRunner
 
 from pyrange.cli import app
 from pyrange.core import load_scenario
+from pyrange.engine.docker import find_container_identity, find_network_identity
 from pyrange.engine import (
     DockerUnavailableError,
     get_docker_server_version,
@@ -21,16 +22,15 @@ from pyrange.engine import (
 runner = CliRunner()
 
 
-def docker_resource_exists(
-    command: list[str],
-) -> bool:
-    result = subprocess.run(
-        command,
-        capture_output=True,
-        text=True,
-    )
-
-    return result.returncode == 0
+def docker_resource_exists(command: list[str]) -> bool:
+    # A failed query must not be accepted as proof of successful cleanup.
+    if len(command) != 4:
+        raise ValueError("Expected an inspect command with one resource name")
+    if command[:3] == ["docker", "container", "inspect"]:
+        return find_container_identity(command[3]) is not None
+    if command[:3] == ["docker", "network", "inspect"]:
+        return find_network_identity(command[3]) is not None
+    raise ValueError("Unsupported resource inspection command")
 
 
 @pytest.mark.integration

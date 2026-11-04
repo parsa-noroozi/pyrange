@@ -1,24 +1,29 @@
 import subprocess
+from uuid import uuid4
 
 import pytest
 
 from pyrange.core import load_scenario
+from pyrange.engine.docker import find_container_identity, find_network_identity
 from pyrange.engine import (
     DockerUnavailableError,
     get_docker_server_version,
+    get_lab_container_name,
+    get_lab_network_name,
     start_lab,
     stop_lab,
 )
 
 
 def docker_resource_exists(command: list[str]) -> bool:
-    result = subprocess.run(
-        command,
-        capture_output=True,
-        text=True,
-    )
-
-    return result.returncode == 0
+    # A failed query must not be accepted as proof of successful cleanup.
+    if len(command) != 4:
+        raise ValueError("Expected an inspect command with one resource name")
+    if command[:3] == ["docker", "container", "inspect"]:
+        return find_container_identity(command[3]) is not None
+    if command[:3] == ["docker", "network", "inspect"]:
+        return find_network_identity(command[3]) is not None
+    raise ValueError("Unsupported resource inspection command")
 
 
 @pytest.mark.integration
@@ -31,18 +36,16 @@ def test_basic_web_lab_lifecycle() -> None:
     scenario = load_scenario(
         "scenarios/basic-web-lab.yaml"
     )
+    scenario.name = f"integration-{uuid4().hex}"
 
-    network_name = (
-        "pyrange-v2-network-"
-        "5b70c90f2ef42c0bbb53ef371a3eb36f92f8e085d658aca24c9b24abb885b289"
+    network_name = get_lab_network_name(
+        scenario, next(item for item in scenario.networks if item.name == "lab-net")
     )
-    web_container = (
-        "pyrange-v2-container-"
-        "3969cf8bdfdea9ed8848e1d514f1e25788f90a81a7a2f918fe961a4588b318f5"
+    web_container = get_lab_container_name(
+        scenario, next(item for item in scenario.machines if item.name == "web")
     )
-    analyst_container = (
-        "pyrange-v2-container-"
-        "fe292e84433c0f01d4f2189d4fd9a6bb1d88425965cbf530798c472fe4707c54"
+    analyst_container = get_lab_container_name(
+        scenario, next(item for item in scenario.machines if item.name == "analyst")
     )
 
     try:

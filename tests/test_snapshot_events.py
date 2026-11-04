@@ -18,6 +18,7 @@ from pyrange.engine.snapshot import (
     create_machine_snapshot,
     restore_machine_snapshot,
 )
+from pyrange.engine.ownership import build_ownership_labels
 from pyrange.models import (
     HealthCheckConfig,
     MachineConfig,
@@ -124,9 +125,10 @@ def make_recorder(
 def test_snapshot_emits_requested_and_created_events(
     mock_create_container_snapshot,
     scenario: ScenarioConfig,
+    snapshot_resources,
 ) -> None:
     mock_create_container_snapshot.return_value = (
-        "sha256:snapshot123"
+        ("sha256:" + "c" * 64)
     )
 
     sink = CollectingSink()
@@ -154,7 +156,7 @@ def test_snapshot_emits_requested_and_created_events(
     assert sink.events[1].outcome == "success"
     assert sink.events[1].attributes[
         "image_id"
-    ] == "sha256:snapshot123"
+    ] == ("sha256:" + "c" * 64)
 
 
 @patch(
@@ -164,6 +166,7 @@ def test_snapshot_emits_requested_and_created_events(
 def test_snapshot_records_operational_failure(
     mock_create_container_snapshot,
     scenario: ScenarioConfig,
+    snapshot_resources,
 ) -> None:
     mock_create_container_snapshot.side_effect = (
         DockerOperationError(
@@ -209,9 +212,10 @@ def test_snapshot_records_operational_failure(
 def test_snapshot_reports_event_failure_after_image_creation(
     mock_create_container_snapshot,
     scenario: ScenarioConfig,
+    snapshot_resources,
 ) -> None:
     mock_create_container_snapshot.return_value = (
-        "sha256:snapshot123"
+        ("sha256:" + "c" * 64)
     )
 
     sink = FailingEventSink(
@@ -257,18 +261,17 @@ def test_snapshot_reports_event_failure_after_image_creation(
 )
 @patch("pyrange.engine.snapshot.create_container")
 @patch("pyrange.engine.snapshot.remove_container")
-@patch("pyrange.engine.snapshot.get_image_id")
+@patch("pyrange.engine.snapshot.find_image_identity")
 def test_restore_emits_ordered_topology_events(
-    mock_get_image_id,
+    mock_find_image_identity,
     mock_remove_container,
     mock_create_container,
     mock_connect_container_to_network,
     mock_start_container,
     scenario: ScenarioConfig,
+    snapshot_resources,
 ) -> None:
-    mock_get_image_id.return_value = (
-        "sha256:snapshot123"
-    )
+    mock_find_image_identity.return_value = snapshot_resources.image
 
     sink = CollectingSink()
     recorder = make_recorder(
@@ -320,13 +323,14 @@ def test_restore_emits_ordered_topology_events(
 
 
 @patch("pyrange.engine.snapshot.remove_container")
-@patch("pyrange.engine.snapshot.get_image_id")
+@patch("pyrange.engine.snapshot.find_image_identity")
 def test_restore_records_preflight_failure_before_removal(
-    mock_get_image_id,
+    mock_find_image_identity,
     mock_remove_container,
     scenario: ScenarioConfig,
+    snapshot_resources,
 ) -> None:
-    mock_get_image_id.side_effect = (
+    mock_find_image_identity.side_effect = (
         DockerOperationError(
             "No such image"
         )
@@ -376,19 +380,18 @@ def test_restore_records_preflight_failure_before_removal(
 )
 @patch("pyrange.engine.snapshot.create_container")
 @patch("pyrange.engine.snapshot.remove_container")
-@patch("pyrange.engine.snapshot.get_image_id")
+@patch("pyrange.engine.snapshot.find_image_identity")
 def test_restore_health_event_excludes_command_output(
-    mock_get_image_id,
+    mock_find_image_identity,
     mock_remove_container,
     mock_create_container,
     mock_connect_container_to_network,
     mock_start_container,
     mock_evaluate_health_check,
     scenario: ScenarioConfig,
+    snapshot_resources,
 ) -> None:
-    mock_get_image_id.return_value = (
-        "sha256:snapshot123"
-    )
+    mock_find_image_identity.return_value = snapshot_resources.image
 
     scenario.machines[0].health_check = (
         HealthCheckConfig(
@@ -443,19 +446,18 @@ def test_restore_health_event_excludes_command_output(
 )
 @patch("pyrange.engine.snapshot.create_container")
 @patch("pyrange.engine.snapshot.remove_container")
-@patch("pyrange.engine.snapshot.get_image_id")
+@patch("pyrange.engine.snapshot.find_image_identity")
 def test_restore_health_failure_remains_primary_when_logging_fails(
-    mock_get_image_id,
+    mock_find_image_identity,
     mock_remove_container,
     mock_create_container,
     mock_connect_container_to_network,
     mock_start_container,
     mock_evaluate_health_check,
     scenario: ScenarioConfig,
+    snapshot_resources,
 ) -> None:
-    mock_get_image_id.return_value = (
-        "sha256:snapshot123"
-    )
+    mock_find_image_identity.return_value = snapshot_resources.image
 
     scenario.machines[0].health_check = (
         HealthCheckConfig(
@@ -523,18 +525,17 @@ def test_restore_health_failure_remains_primary_when_logging_fails(
 )
 @patch("pyrange.engine.snapshot.create_container")
 @patch("pyrange.engine.snapshot.remove_container")
-@patch("pyrange.engine.snapshot.get_image_id")
+@patch("pyrange.engine.snapshot.find_image_identity")
 def test_restore_continues_after_post_removal_event_failure(
-    mock_get_image_id,
+    mock_find_image_identity,
     mock_remove_container,
     mock_create_container,
     mock_connect_container_to_network,
     mock_start_container,
     scenario: ScenarioConfig,
+    snapshot_resources,
 ) -> None:
-    mock_get_image_id.return_value = (
-        "sha256:snapshot123"
-    )
+    mock_find_image_identity.return_value = snapshot_resources.image
 
     sink = FailingEventSink(
         "restore.container.removed"
@@ -582,6 +583,7 @@ def test_restore_continues_after_post_removal_event_failure(
 def test_snapshot_rejects_mismatched_event_context(
     mock_create_container_snapshot,
     scenario: ScenarioConfig,
+    snapshot_resources,
 ) -> None:
     sink = CollectingSink()
 

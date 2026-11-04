@@ -967,15 +967,26 @@ def execute_container_command(
 def create_container_snapshot(
     name: str,
     image_ref: str,
+    *,
+    labels: dict[str, str] | None = None,
 ) -> str:
+    command = ["docker", "commit"]
+    if labels is not None:
+        for key, value in sorted(labels.items()):
+            if (
+                not isinstance(key, str) or not key
+                or any(c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-" for c in key)
+                or not isinstance(value, str)
+                or any(c in value for c in "\r\n\x00")
+            ):
+                raise ValueError("Invalid snapshot label key or value.")
+            escaped = value.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$")
+            command.extend(["--change", f'LABEL {key}="{escaped}"'])
+    command.extend([name, image_ref])
+
     try:
         result = subprocess.run(
-            [
-                "docker",
-                "commit",
-                name,
-                image_ref,
-            ],
+            command,
             capture_output=True,
             text=True,
             check=True,
@@ -1019,3 +1030,70 @@ def remove_container(name: str) -> None:
             or "Failed to remove Docker container."
         )
         raise DockerOperationError(message) from exc
+
+
+def _valid_image_identity(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and value.startswith("sha256:")
+        and len(value) == 71
+        and all(c in "0123456789abcdef" for c in value[7:])
+    )
+
+
+def inspect_image_identity(reference: str) -> DockerResourceIdentity:
+    result = _run_docker_query(
+        ["docker", "image", "inspect", reference],
+        f"Failed to inspect Docker image '{reference}'.",
+    )
+    payload = _load_single_inspect_object(result.stdout, f"image '{reference}'")
+    resource_id = payload.get("Id")
+    config = payload.get("Config")
+    if not _valid_image_identity(resource_id) or not isinstance(config, dict):
+        raise DockerOperationError("Docker returned invalid image identity data.")
+    labels = config.get("Labels")
+    if labels is not None and (
+        not isinstance(labels, dict)
+        or any(not isinstance(k, str) or not isinstance(v, str) for k, v in labels.items())
+    ):
+        raise DockerOperationError("Docker returned invalid image ownership labels.")
+    return DockerResourceIdentity(resource_id, None if labels is None else dict(labels))
+
+
+def find_image_identity(image_ref: str) -> DockerResourceIdentity | None:
+    """Resolve an explicit repository:tag, then inspect its immutable image ID."""
+    if not isinstance(image_ref, str):
+        raise TypeError("image reference must be a string")
+    repository, separator, tag = image_ref.rpartition(":")
+    if not separator or not repository or not tag or "/" in tag or "@" in image_ref or any(c.isspace() for c in image_ref):
+        raise ValueError("image reference must contain an explicit repository and tag")
+    result = _run_docker_query(
+        ["docker", "image", "ls", "--all", "--no-trunc", "--format", "{{json .}}"],
+        "Failed to list Docker images.",
+    )
+    matches = set()
+    for line in result.stdout.splitlines():
+        if not line.strip():
+            continue
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise DockerOperationError("Docker returned invalid image listing data.") from exc
+        if not isinstance(entry, dict) or any(
+            not isinstance(entry.get(key), str) or not entry[key]
+            for key in ("Repository", "Tag", "ID")
+        ):
+            raise DockerOperationError("Docker returned invalid image listing data.")
+        if entry["Repository"] == repository and entry["Tag"] == tag:
+            if not _valid_image_identity(entry["ID"]):
+                raise DockerOperationError("Docker returned invalid image ID.")
+            matches.add(entry["ID"])
+    if not matches:
+        return None
+    if len(matches) != 1:
+        raise DockerOperationError("Docker returned ambiguous image reference.")
+    selected_id = matches.pop()
+    identity = inspect_image_identity(selected_id)
+    if identity.resource_id != selected_id:
+        raise DockerOperationError("Docker inspection returned a different image ID.")
+    return identity

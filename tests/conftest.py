@@ -42,3 +42,23 @@ def rollback_resources():
             configure=configure, inspect_container=inspect_container,
             inspect_network=inspect_network,
         )
+
+
+@pytest.fixture
+def snapshot_resources():
+    container = DockerResourceIdentity(
+        "a" * 64, build_ownership_labels("container", "snapshot-lab", "web")
+    )
+    image = DockerResourceIdentity(
+        "sha256:" + "c" * 64,
+        build_ownership_labels("snapshot", "snapshot-lab", "web"),
+    )
+    with (
+        patch("pyrange.engine.snapshot.find_container_identity", return_value=container) as find_container,
+        patch("pyrange.engine.snapshot.find_image_identity", return_value=None) as find_image,
+        patch("pyrange.engine.docker.subprocess.run", side_effect=AssertionError("Unexpected Docker call in snapshot unit test")),
+    ):
+        yield SimpleNamespace(
+            container=container, image=image,
+            find_container=find_container, find_image=find_image,
+        )

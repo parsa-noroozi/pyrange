@@ -7,7 +7,8 @@ from pyrange.engine.docker import (
     connect_container_to_network,
     create_container,
     create_container_snapshot,
-    get_image_id,
+    find_container_identity,
+    find_image_identity,
     remove_container,
     start_container,
 )
@@ -22,6 +23,7 @@ from pyrange.engine.manager import (
     get_lab_network_name,
 )
 from pyrange.engine.naming import build_resource_name
+from pyrange.engine.ownership import build_ownership_labels, verify_resource_ownership
 from pyrange.models import (
     MachineConfig,
     ScenarioConfig,
@@ -233,9 +235,21 @@ def create_machine_snapshot(
     )
 
     try:
+        if find_image_identity(image_ref) is not None:
+            raise SnapshotError(f"Snapshot reference already exists: '{image_ref}'.")
+        container = find_container_identity(container_name)
+        if container is None:
+            raise SnapshotError(f"Snapshot source container is absent: '{container_name}'.")
+        verify_resource_ownership(
+            container.labels,
+            kind="container",
+            scenario_name=scenario.name,
+            resource_name=machine.name,
+        )
         image_id = create_container_snapshot(
-            name=container_name,
+            name=container.resource_id,
             image_ref=image_ref,
+            labels=build_ownership_labels("snapshot", scenario.name, machine.name),
         )
     except Exception as exc:
         _emit_failure_path_event(
@@ -361,33 +375,51 @@ def restore_machine_snapshot(
     stage = "preflight"
 
     try:
-        image_id = get_image_id(image_ref)
-
-        stage = "remove_container"
-        destructive_started = True
-        remove_container(container_name)
-
-        _record_restore_event(
-            recorder,
-            event_errors,
-            "restore.container.removed",
-            outcome="success",
-            resource=resource,
-            attributes={
-                "runtime_name": container_name,
-            },
+        image = find_image_identity(image_ref)
+        if image is None:
+            raise SnapshotError(f"Snapshot image is absent: '{image_ref}'.")
+        verify_resource_ownership(
+            image.labels,
+            kind="snapshot",
+            scenario_name=scenario.name,
+            resource_name=machine.name,
         )
+        image_id = image.resource_id
+        container = find_container_identity(container_name)
+        if container is not None:
+            verify_resource_ownership(
+                container.labels,
+                kind="container",
+                scenario_name=scenario.name,
+                resource_name=machine.name,
+            )
+            stage = "remove_container"
+            destructive_started = True
+            remove_container(container.resource_id)
+            _record_restore_event(
+                recorder, event_errors, "restore.container.removed",
+                outcome="success", resource=resource,
+                attributes={"runtime_name": container_name},
+            )
+        else:
+            _record_restore_event(
+                recorder, event_errors, "restore.container.absent",
+                resource=resource,
+                attributes={"runtime_name": container_name},
+            )
 
         stage = "create_container"
         primary_network_name = network_names[
             primary_interface.network
         ]
 
+        destructive_started = True
         create_container(
             name=container_name,
             image=image_id,
             network=primary_network_name,
             ip=str(primary_interface.ip),
+            labels=build_ownership_labels("container", scenario.name, machine.name),
         )
 
         _record_restore_event(

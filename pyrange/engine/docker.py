@@ -189,6 +189,89 @@ def inspect_container_identity(
     )
 
 
+def find_container_identity(
+    name: str,
+) -> DockerResourceIdentity | None:
+    if not isinstance(name, str):
+        raise TypeError("container name must be a string")
+    if not name or name != name.strip():
+        raise ValueError("container name must not be empty or padded")
+
+    result = _run_docker_query(
+        [
+            "docker",
+            "container",
+            "ls",
+            "--all",
+            "--no-trunc",
+            "--format",
+            "{{json .}}",
+        ],
+        "Failed to list Docker containers.",
+    )
+
+    matching_ids: list[str] = []
+
+    for line in result.stdout.splitlines():
+        if not line.strip():
+            continue
+
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise DockerOperationError(
+                "Docker returned invalid container listing data."
+            ) from exc
+
+        if not isinstance(entry, dict):
+            raise DockerOperationError(
+                "Docker returned invalid container listing data."
+            )
+
+        resource_id = entry.get("ID")
+        names = entry.get("Names")
+
+        if (
+            not isinstance(resource_id, str)
+            or len(resource_id) != 64
+            or any(
+                character not in "0123456789abcdef"
+                for character in resource_id
+            )
+            or not isinstance(names, str)
+            or not names.strip()
+        ):
+            raise DockerOperationError(
+                "Docker returned invalid container listing data."
+            )
+
+        listed_names = {
+            item.strip()
+            for item in names.split(",")
+        }
+
+        if name in listed_names:
+            matching_ids.append(resource_id)
+
+    if not matching_ids:
+        return None
+
+    if len(matching_ids) != 1:
+        raise DockerOperationError(
+            f"Docker returned ambiguous container name '{name}'."
+        )
+
+    selected_id = matching_ids[0]
+    identity = inspect_container_identity(selected_id)
+
+    if identity.resource_id != selected_id:
+        raise DockerOperationError(
+            "Docker inspection returned a different container ID."
+        )
+
+    return identity
+
+
 def inspect_container_runtime(
     name: str,
 ) -> ContainerRuntimeState | None:

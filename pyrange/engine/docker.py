@@ -483,6 +483,145 @@ def get_container_stats(
     )
 
 
+def inspect_network_identity(
+    reference: str,
+) -> DockerResourceIdentity:
+    result = _run_docker_query(
+        [
+            "docker",
+            "network",
+            "inspect",
+            reference,
+        ],
+        f"Failed to inspect Docker network '{reference}'.",
+    )
+
+    payload = _load_single_inspect_object(
+        result.stdout,
+        f"network '{reference}'",
+    )
+
+    resource_id = payload.get("Id")
+
+    if (
+        not isinstance(resource_id, str)
+        or len(resource_id) != 64
+        or any(
+            character not in "0123456789abcdef"
+            for character in resource_id
+        )
+    ):
+        raise DockerOperationError(
+            "Docker returned invalid identity data for "
+            f"network '{reference}'."
+        )
+
+    labels = payload.get("Labels")
+
+    if labels is not None:
+        if not isinstance(labels, dict) or any(
+            not isinstance(key, str)
+            or not isinstance(value, str)
+            for key, value in labels.items()
+        ):
+            raise DockerOperationError(
+                "Docker returned invalid ownership labels for "
+                f"network '{reference}'."
+            )
+
+    return DockerResourceIdentity(
+        resource_id=resource_id,
+        labels=None if labels is None else dict(labels),
+    )
+
+
+def find_network_identity(
+    name: str,
+) -> DockerResourceIdentity | None:
+    if not isinstance(name, str):
+        raise TypeError("network name must be a string")
+    if not name or name != name.strip():
+        raise ValueError("network name must not be empty or padded")
+
+    result = _run_docker_query(
+        [
+            "docker",
+            "network",
+            "ls",
+            "--no-trunc",
+            "--format",
+            "{{json .}}",
+        ],
+        "Failed to list Docker networks.",
+    )
+
+    matching_ids: list[str] = []
+
+    for line in result.stdout.splitlines():
+        if not line.strip():
+            continue
+
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise DockerOperationError(
+                "Docker returned invalid network listing data."
+            ) from exc
+
+        if not isinstance(entry, dict):
+            raise DockerOperationError(
+                "Docker returned invalid network listing data."
+            )
+
+        resource_id = entry.get("ID")
+        listed_name = entry.get("Name")
+
+        if (
+            not isinstance(resource_id, str)
+            or not resource_id.strip()
+            or not isinstance(listed_name, str)
+            or not listed_name.strip()
+        ):
+            raise DockerOperationError(
+                "Docker returned invalid network listing data."
+            )
+
+        if listed_name != name:
+            continue
+
+        if (
+            len(resource_id) != 64
+            or any(
+                character not in "0123456789abcdef"
+                for character in resource_id
+            )
+        ):
+            raise DockerOperationError(
+                "Docker returned an invalid or unsupported "
+                f"network ID for '{name}'."
+            )
+
+        matching_ids.append(resource_id)
+
+    if not matching_ids:
+        return None
+
+    if len(matching_ids) != 1:
+        raise DockerOperationError(
+            f"Docker returned ambiguous network name '{name}'."
+        )
+
+    selected_id = matching_ids[0]
+    identity = inspect_network_identity(selected_id)
+
+    if identity.resource_id != selected_id:
+        raise DockerOperationError(
+            "Docker inspection returned a different network ID."
+        )
+
+    return identity
+
+
 def inspect_network_runtime(
     name: str,
 ) -> NetworkRuntimeState | None:

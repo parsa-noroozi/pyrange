@@ -29,8 +29,8 @@ retain the existing separation and reporting behavior.
 ## Compatibility and limits
 
 Old snapshot images without the required snapshot labels are rejected. They are
-not automatically relabeled or migrated. Broader legacy-resource discovery and
-manual migration/cleanup guidance remain part of the foundation-hardening work.
+not automatically relabeled or migrated. Legacy-resource discovery and
+manual review/cleanup behavior are documented in [legacy-resources.md](legacy-resources.md).
 
 Creation requires exclusive use of the selected checkpoint reference: do not
 create, tag, delete, or replace that reference concurrently. The absence check
@@ -42,6 +42,12 @@ reference; it cannot guarantee that the tag stays absent until commit.
 Docker commit does not capture mounted-volume data. Filesystem restore is not a
 transaction: failure after removal may leave the target absent or only partially
 restored. This change does not promise rollback to the pre-restore container.
+
+Restore does not preflight ownership/existence of all destination networks before
+removing the target. Network attachment and subsequent start/health operations
+still use runtime names. Operate on an exclusively controlled scenario; this
+change is not concurrent topology authorization. A missing network can therefore
+cause failure after the old container has been removed.
 
 ## Validation
 

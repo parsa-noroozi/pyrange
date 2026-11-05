@@ -1,8 +1,8 @@
 # Resource ownership contract
 
-Status: Draft
+Status: Implemented foundation contract (unreleased)
 Scope: Foundation hardening on fix/resource-naming.
-This document describes intended behavior, not completed implementation.
+This document describes the implemented orchestrator behavior and its limits; it does not announce a release.
 
 ## 1. Resource identity
 
@@ -54,8 +54,10 @@ Using the verified ID avoids targeting a replacement with the same name.
 
 ## 4. Missing resources and partial failures
 
-During stop or rollback, a resource confirmed to be absent needs
-no deletion. Report it as absent, not as successfully deleted.
+During stop, successful discovery of absence needs no deletion and is reported
+as absent, not successfully deleted. Rollback inspects recorded creation IDs
+directly: an inspect failure (including disappearance) is reported as a cleanup
+failure, because this path does not classify absence separately.
 
 A Docker query failure is an operational error, not proof of absence.
 
@@ -88,7 +90,9 @@ Before restore removes or replaces a container:
 Create the restored container with explicit container ownership labels.
 Do not rely on snapshot labels inherited from the image.
 
-An existing snapshot reference must not be silently overwritten.
+An already observed snapshot reference is rejected rather than overwritten.
+The absence check and commit are separate operations. Concurrent checkpoint
+writers are unsupported; this is not atomic create-if-absent protection.
 Checkpoint replacement is outside this change's scope.
 
 ## 7. Legacy resources
@@ -103,7 +107,7 @@ When a relevant legacy candidate is found:
 - Do not report a fully cleaned lab while that candidate is unresolved.
 
 Automatic migration is outside this change's scope.
-Manual inspection and cleanup guidance must be documented before release.
+Manual inspection and cleanup guidance is in [legacy-resources.md](legacy-resources.md).
 
 ## 8. Acceptance evidence
 
@@ -120,3 +124,23 @@ Required checks include:
 - Restored containers receive container ownership metadata.
 - Legacy candidates are reported without automatic mutation.
 - Docker integration tests verify actual label and lifecycle behavior.
+
+## 9. Operational boundaries
+
+Ownership enforcement is at the orchestrator paths described above. Low-level
+Docker functions remain primitives; directly calling `remove_container` or
+`remove_network` does not perform ownership verification.
+
+This is not full mutation authorization or concurrent scenario isolation.
+Start/restore attachment, start, and health-check calls still use runtime names;
+restore does not preflight ownership/existence of all destination networks before
+removing the old container. Exclusive use of the affected scenario and its networks
+is required. Status/telemetry inspect names and are not ownership attestations.
+
+Restore can leave partial state and does not roll back to the previous container.
+The CLI timeout contract does not guarantee workload cancellation or deadlines
+for all Docker operations. See [snapshot-ownership.md](snapshot-ownership.md) and
+[command-timeouts.md](command-timeouts.md).
+
+These limits are recorded for subsequent work; this contract must not be cited
+as proof of hostile-daemon isolation, atomic recovery, or canonical experiment identity.

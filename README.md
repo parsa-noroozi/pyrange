@@ -8,6 +8,23 @@ PyRange is evolving toward a reproducible cybersecurity experimentation platform
 
 > PyRange is intended for authorized cybersecurity labs, research environments, and educational use only.
 
+## Foundation hardening (unreleased)
+
+The released baseline and package version remain **0.6.0**. The current branch
+adds resource naming v2, ownership checks before stop/rollback/restore deletion,
+legacy-resource detection, explicit command-timeout semantics, and CI/wheel checks.
+This is not the v0.7 state-machine implementation or a new release announcement.
+Examples below use the current branch's v2 runtime names.
+
+Read the current contracts before operating existing labs:
+
+- [Resource ownership](docs/resource-ownership-contract.md)
+- [Snapshot and restore](docs/snapshot-ownership.md)
+- [Legacy resources and manual review](docs/legacy-resources.md)
+- [Command timeouts](docs/command-timeouts.md)
+- [CI and wheel validation](docs/ci-and-wheel-validation.md)
+- [Foundation review and evidence](docs/foundation-review.md)
+
 ## Current Version
 
 **v0.6.0 - Telemetry Collection and Run Artifacts**
@@ -482,7 +499,7 @@ A resource reference contains:
 Example JSONL record:
 
 ```json
-{"schema_version":1,"event_id":"22222222-2222-4222-8222-222222222222","run_id":"11111111-1111-4111-8111-111111111111","sequence":4,"timestamp":"2026-10-06T18:30:00Z","scenario":"segmented-lab","operation":"start","event_type":"machine.started","outcome":"success","resource":{"type":"machine","name":"web"},"attributes":{"runtime_name":"pyrange-segmented-lab-web"}}
+{"schema_version":1,"event_id":"22222222-2222-4222-8222-222222222222","run_id":"11111111-1111-4111-8111-111111111111","sequence":4,"timestamp":"2026-10-06T18:30:00Z","scenario":"segmented-lab","operation":"start","event_type":"machine.started","outcome":"success","resource":{"type":"machine","name":"web"},"attributes":{"runtime_name":"pyrange-v2-container-12ac3acb9b451ad60efb6ba7e0fda1ce7ddf48c60ec26104388a769622d55d8c"}}
 ```
 
 Each line in the event file is an independent JSON object.
@@ -812,7 +829,7 @@ When the Docker network exists, the telemetry payload is shaped like:
 
 ```json
 {
-  "runtime_name": "pyrange-segmented-lab-public-net",
+  "runtime_name": "pyrange-v2-network-e766ac61206c7ae3d71571ae1872401af69f7d756d5e2d1c52b6e99a8d7dda8d",
   "present": true,
   "subnets": ["172.28.20.0/24"]
 }
@@ -822,7 +839,7 @@ When the expected network is missing:
 
 ```json
 {
-  "runtime_name": "pyrange-segmented-lab-public-net",
+  "runtime_name": "pyrange-v2-network-e766ac61206c7ae3d71571ae1872401af69f7d756d5e2d1c52b6e99a8d7dda8d",
   "present": false,
   "subnets": []
 }
@@ -846,12 +863,12 @@ For an existing container:
 
 ```json
 {
-  "runtime_name": "pyrange-segmented-lab-web",
+  "runtime_name": "pyrange-v2-container-12ac3acb9b451ad60efb6ba7e0fda1ce7ddf48c60ec26104388a769622d55d8c",
   "present": true,
   "status": "running",
   "networks": [
     {
-      "network_name": "pyrange-segmented-lab-public-net",
+      "network_name": "pyrange-v2-network-e766ac61206c7ae3d71571ae1872401af69f7d756d5e2d1c52b6e99a8d7dda8d",
       "ip_address": "172.28.20.10"
     }
   ]
@@ -864,7 +881,7 @@ For a missing container:
 
 ```json
 {
-  "runtime_name": "pyrange-segmented-lab-web",
+  "runtime_name": "pyrange-v2-container-12ac3acb9b451ad60efb6ba7e0fda1ce7ddf48c60ec26104388a769622d55d8c",
   "present": false,
   "status": null,
   "networks": []
@@ -885,7 +902,7 @@ The payload contains:
 
 ```json
 {
-  "runtime_name": "pyrange-segmented-lab-web",
+  "runtime_name": "pyrange-v2-container-12ac3acb9b451ad60efb6ba7e0fda1ce7ddf48c60ec26104388a769622d55d8c",
   "cpu_percent": "0.10%",
   "memory_usage": "10MiB / 1GiB",
   "memory_percent": "1.00%",
@@ -1070,32 +1087,32 @@ Scenario: segmented-lab
 Status: stopped
 Networks:
   - public-net: missing
-      Runtime: pyrange-segmented-lab-public-net
+      Runtime: pyrange-v2-network-e766ac61206c7ae3d71571ae1872401af69f7d756d5e2d1c52b6e99a8d7dda8d
       Expected subnet: 172.28.20.0/24
       Actual subnets: -
   - private-net: missing
-      Runtime: pyrange-segmented-lab-private-net
+      Runtime: pyrange-v2-network-9b692d460dc781424b243d45281ac928e348d8f82fc6266ed6bf44477bec2027
       Expected subnet: 172.28.30.0/24
       Actual subnets: -
 Machines:
   - web: missing
-      Runtime: pyrange-segmented-lab-web
+      Runtime: pyrange-v2-container-12ac3acb9b451ad60efb6ba7e0fda1ce7ddf48c60ec26104388a769622d55d8c
       Container state: -
       Interfaces:
         - public-net: missing
-            Runtime network: pyrange-segmented-lab-public-net
+            Runtime network: pyrange-v2-network-e766ac61206c7ae3d71571ae1872401af69f7d756d5e2d1c52b6e99a8d7dda8d
             Expected IP: 172.28.20.10
             Actual IP: -
   - analyst: missing
-      Runtime: pyrange-segmented-lab-analyst
+      Runtime: pyrange-v2-container-9570b0024cb6a01a4921131433a5dc16830e6ea15fe4ba55b1c94c3298d37427
       Container state: -
       Interfaces:
         - public-net: missing
-            Runtime network: pyrange-segmented-lab-public-net
+            Runtime network: pyrange-v2-network-e766ac61206c7ae3d71571ae1872401af69f7d756d5e2d1c52b6e99a8d7dda8d
             Expected IP: 172.28.20.20
             Actual IP: -
         - private-net: missing
-            Runtime network: pyrange-segmented-lab-private-net
+            Runtime network: pyrange-v2-network-9b692d460dc781424b243d45281ac928e348d8f82fc6266ed6bf44477bec2027
             Expected IP: 172.28.30.20
             Actual IP: -
 ```
@@ -1158,7 +1175,7 @@ Example output without event logging:
 Creating snapshot: web (checkpoint-1)
 Snapshot created successfully.
 Machine: web
-Image: pyrange-snapshots/segmented-lab-web:checkpoint-1
+Image: pyrange-snapshots/pyrange-v2-snapshot-75e178bc78ae34e564c4e47208657f35878b1df62004b79f834fb2e12d999de6:checkpoint-1
 Image ID: sha256:...
 ```
 
@@ -1182,7 +1199,7 @@ Example output without event logging:
 Restoring snapshot: web (checkpoint-1)
 Snapshot restored successfully.
 Machine: web
-Image: pyrange-snapshots/segmented-lab-web:checkpoint-1
+Image: pyrange-snapshots/pyrange-v2-snapshot-75e178bc78ae34e564c4e47208657f35878b1df62004b79f834fb2e12d999de6:checkpoint-1
 Image ID: sha256:...
 ```
 
@@ -1208,7 +1225,7 @@ Example:
 
 ```text
 - public-net: matching
-    Runtime: pyrange-segmented-lab-public-net
+    Runtime: pyrange-v2-network-e766ac61206c7ae3d71571ae1872401af69f7d756d5e2d1c52b6e99a8d7dda8d
     Expected subnet: 172.28.20.0/24
     Actual subnets: 172.28.20.0/24
 ```
@@ -1315,7 +1332,7 @@ The health check fields are:
 | `type` | Health check type. Currently only `command` is supported. |
 | `command` | Command and arguments executed inside the container. |
 | `interval_seconds` | Delay between failed attempts. |
-| `timeout_seconds` | Maximum execution time for one attempt. |
+| `timeout_seconds` | Docker exec client wait timeout; workload cancellation is not confirmed. |
 | `retries` | Number of additional retries after the initial attempt. |
 
 A command exit code of `0` means the machine is healthy.
@@ -1358,13 +1375,17 @@ Retry 3
 
 The configured interval is applied between failed attempts.
 
-Each individual attempt is bounded by `timeout_seconds`.
+`timeout_seconds` limits the Docker exec client wait; it is not a guarantee
+that the workload inside the container has terminated. Process creation can also
+delay the timeout exception. After a timeout, health evaluation ends immediately
+without another retry, returns `exit_code=None`, and reports the uncertainty.
+Ordinary completed failures can still use the configured retries.
 
 Health checks run only after all containers in the scenario have been started.
 
 This ordering allows machines to depend on services provided by other machines in the same lab.
 
-If a machine remains unhealthy after all configured attempts, lab startup fails and PyRange rolls back the Docker resources created for the lab.
+If a machine remains unhealthy after its attempts, or an attempt times out, lab startup fails and PyRange attempts ownership-checked rollback of resources created by that attempt.
 
 ## Lab Lifecycle
 
@@ -1453,6 +1474,12 @@ PyRange snapshots are Docker-image-based recovery points for individual machines
 
 ### Snapshot Creation
 
+Snapshot creation first rejects relevant legacy candidates and any already
+observed checkpoint reference, then verifies source-container ownership. Docker
+commit targets the verified source ID and writes explicit snapshot ownership labels.
+Concurrent writers to the same checkpoint are unsupported; the absence check and
+commit are separate calls.
+
 Snapshot creation uses Docker's container commit mechanism:
 
 ```text
@@ -1468,13 +1495,13 @@ Snapshot image
 Snapshot image references are deterministic:
 
 ```text
-pyrange-snapshots/<scenario-name>-<machine-name>:<snapshot-name>
+pyrange-snapshots/pyrange-v2-snapshot-<sha256>:<snapshot-name>
 ```
 
 For example:
 
 ```text
-pyrange-snapshots/segmented-lab-web:checkpoint-1
+pyrange-snapshots/pyrange-v2-snapshot-75e178bc78ae34e564c4e47208657f35878b1df62004b79f834fb2e12d999de6:checkpoint-1
 ```
 
 Snapshot names:
@@ -1503,8 +1530,14 @@ Before the destructive part begins, PyRange:
 1. Resolves the target machine from the scenario.
 2. Validates the snapshot name.
 3. Builds the deterministic snapshot image reference.
-4. Verifies that the Docker image exists.
-5. Resolves that image reference to a Docker image ID.
+4. Rejects relevant legacy candidates or discovery failures.
+5. Resolves the selected image and verifies its snapshot ownership labels.
+6. Pins that verified Docker image ID.
+7. Resolves the existing target, if any, and verifies its container ownership labels.
+
+Deletion addresses the verified container ID. These checks are not an atomic
+transaction and do not validate or pin the existing attachment networks. Use
+exclusive access to the affected scenario during lifecycle operations.
 
 Only after these checks succeed does PyRange enter the destructive restore phase.
 
@@ -1522,6 +1555,9 @@ Verify snapshot image exists
       |
       v
 Resolve immutable image ID
+      |
+      v
+Verify snapshot and existing target ownership
       |
       v
 Enter destructive restore phase
@@ -1590,10 +1626,10 @@ Docker resources created by PyRange use deterministic names.
 For the segmented example:
 
 ```text
-pyrange-segmented-lab-public-net
-pyrange-segmented-lab-private-net
-pyrange-segmented-lab-web
-pyrange-segmented-lab-analyst
+pyrange-v2-network-e766ac61206c7ae3d71571ae1872401af69f7d756d5e2d1c52b6e99a8d7dda8d
+pyrange-v2-network-9b692d460dc781424b243d45281ac928e348d8f82fc6266ed6bf44477bec2027
+pyrange-v2-container-12ac3acb9b451ad60efb6ba7e0fda1ce7ddf48c60ec26104388a769622d55d8c
+pyrange-v2-container-9570b0024cb6a01a4921131433a5dc16830e6ea15fe4ba55b1c94c3298d37427
 ```
 
 Runtime inspection uses these same deterministic names to locate expected Docker resources.
@@ -1601,14 +1637,19 @@ Runtime inspection uses these same deterministic names to locate expected Docker
 Snapshot images use a separate deterministic namespace:
 
 ```text
-pyrange-snapshots/segmented-lab-web:checkpoint-1
+pyrange-snapshots/pyrange-v2-snapshot-75e178bc78ae34e564c4e47208657f35878b1df62004b79f834fb2e12d999de6:checkpoint-1
 ```
 
-Managed containers are labeled with:
+Managed containers and networks, and newly created snapshots, carry six
+ownership labels: `pyrange.managed`, `pyrange.ownership.version`,
+`pyrange.resource.kind`, `pyrange.scenario.name`, `pyrange.resource.name`, and
+`pyrange.resource.identity`. All must match before orchestrator deletion.
 
-```text
-pyrange.managed=true
-```
+Names encode a structured, versioned tuple using full SHA-256. This removes the
+old delimiter ambiguity and separates resource kinds; it is not a mathematical
+proof that hashes cannot collide. A runtime name alone is not ownership proof.
+Read-only status and telemetry remain observations by runtime name, not ownership
+authorization. See the ownership contract for the precise scope.
 
 Deterministic naming makes orchestration and runtime inspection predictable and provides a stable basis for event correlation, telemetry, and future experiment management.
 
@@ -1620,7 +1661,7 @@ Run the full test suite:
 pytest -v
 ```
 
-PyRange v0.6.0 currently contains **197 automated tests**.
+The foundation branch currently collects **470 tests: 462 non-integration and 8 integration tests**. These counts describe this review, not the released v0.6.0 tag.
 
 The suite covers:
 
@@ -1666,7 +1707,7 @@ Run integration-marked tests with:
 pytest -v -m integration -rs
 ```
 
-PyRange v0.6.0 currently includes **6 real Docker-dependent integration tests** across the suite:
+The foundation branch includes **8 real Docker-dependent integration tests**:
 
 1. Basic single-network lab lifecycle
 2. Segmented multi-network lab lifecycle and topology
@@ -1674,6 +1715,8 @@ PyRange v0.6.0 currently includes **6 real Docker-dependent integration tests** 
 4. Snapshot creation and restoration
 5. Structured lifecycle events through the CLI and JSONL event sink
 6. Lab-wide telemetry through the CLI, run-scoped artifact organization, and JSONL telemetry sink
+7. Legacy-network preservation when ownership cannot be established
+8. Workload continuation after Docker exec client timeout
 
 ### Structured Event Integration Test
 
@@ -1770,7 +1813,10 @@ The runtime-status integration test verifies absent resources as `stopped`, star
 
 The snapshot/restore integration test starts a real lab, writes filesystem state, creates a snapshot, modifies the state, restores the snapshot, verifies that the snapshotted state returns, and cleans real Docker resources.
 
-If Docker is unavailable, Docker-dependent integration tests are skipped rather than converted into mocked substitutes.
+Some integration tests skip when Docker is unavailable; the explicit timeout
+experiment fails missing prerequisites. CI rejects skipped or empty integration
+reports, so unavailable Docker cannot satisfy the integration gate. See
+[CI and wheel validation](docs/ci-and-wheel-validation.md).
 
 ## Project Structure
 

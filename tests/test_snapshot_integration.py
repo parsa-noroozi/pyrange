@@ -5,6 +5,7 @@ import pytest
 
 from pyrange.engine import (
     DockerUnavailableError,
+    SnapshotError,
     create_machine_snapshot,
     execute_container_command,
     get_docker_server_version,
@@ -14,6 +15,8 @@ from pyrange.engine import (
     restore_machine_snapshot,
     start_lab,
 )
+from pyrange.engine.docker import find_container_identity, inspect_image_identity
+from pyrange.engine.ownership import verify_resource_ownership
 from pyrange.models import (
     MachineConfig,
     NetworkConfig,
@@ -143,6 +146,14 @@ def test_snapshot_restore_preserves_filesystem_state() -> None:
             snapshot_name=snapshot_name,
         )
 
+        snapshot_identity = inspect_image_identity(snapshot.image_id)
+        verify_resource_ownership(
+            snapshot_identity.labels, kind="snapshot",
+            scenario_name=scenario.name, resource_name=machine.name,
+        )
+        with pytest.raises(SnapshotError, match="already exists"):
+            create_machine_snapshot(scenario, "web", snapshot_name)
+
         modified_write = execute_container_command(
             name=container_name,
             command=[
@@ -178,6 +189,13 @@ def test_snapshot_restore_preserves_filesystem_state() -> None:
             scenario,
             machine_name="web",
             snapshot_name=snapshot_name,
+        )
+
+        restored_identity = find_container_identity(container_name)
+        assert restored_identity is not None
+        verify_resource_ownership(
+            restored_identity.labels, kind="container",
+            scenario_name=scenario.name, resource_name=machine.name,
         )
 
         restored_read = execute_container_command(

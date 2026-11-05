@@ -2,6 +2,7 @@ import time
 from dataclasses import dataclass
 
 from pyrange.engine.docker import (
+    DockerCommandTimeoutError,
     DockerOperationError,
     DockerUnavailableError,
     execute_container_command,
@@ -33,6 +34,15 @@ def evaluate_health_check(
             )
         except DockerUnavailableError:
             raise
+        except DockerCommandTimeoutError as exc:
+            # A retry could overlap a workload whose termination is unknown.
+            return HealthCheckResult(
+                healthy=False,
+                attempts=attempt,
+                exit_code=None,
+                stdout=exc.stdout,
+                stderr=str(exc) + (f"\n{exc.stderr}" if exc.stderr else ""),
+            )
         except DockerOperationError as exc:
             if attempt < max_attempts:
                 time.sleep(config.interval_seconds)

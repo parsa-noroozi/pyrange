@@ -6,6 +6,7 @@ from pyrange.engine import (
     DockerOperationError,
     HealthCheckResult,
 )
+from pyrange.engine.docker import DockerResourceIdentity
 from pyrange.engine.manager import (
     LabManagerError,
     get_lab_container_name,
@@ -13,12 +14,47 @@ from pyrange.engine.manager import (
     start_lab,
     stop_lab,
 )
+from pyrange.engine.ownership import build_ownership_labels
 from pyrange.models import (
     HealthCheckConfig,
     MachineConfig,
     NetworkConfig,
     NetworkInterfaceConfig,
     ScenarioConfig,
+)
+
+
+pytestmark = pytest.mark.usefixtures("no_legacy_resources")
+
+
+PUBLIC_NETWORK_NAME = (
+    "pyrange-v2-network-"
+    "e766ac61206c7ae3d71571ae1872401af69f7d756d5e2d1c52b6e99a8d7dda8d"
+)
+
+PRIVATE_NETWORK_NAME = (
+    "pyrange-v2-network-"
+    "9b692d460dc781424b243d45281ac928e348d8f82fc6266ed6bf44477bec2027"
+)
+
+WEB_CONTAINER_NAME = (
+    "pyrange-v2-container-"
+    "12ac3acb9b451ad60efb6ba7e0fda1ce7ddf48c60ec26104388a769622d55d8c"
+)
+
+ANALYST_CONTAINER_NAME = (
+    "pyrange-v2-container-"
+    "9570b0024cb6a01a4921131433a5dc16830e6ea15fe4ba55b1c94c3298d37427"
+)
+
+HEALTH_CONTAINER_NAME = (
+    "pyrange-v2-container-"
+    "9b77efaddb94ee8f01b27814bdc79bf6af6aaeec5d88162ba7729f4edb1700d8"
+)
+
+HEALTH_NETWORK_NAME = (
+    "pyrange-v2-network-"
+    "6e20c278f595f82abc7c7a38897d446ba443a096f542855b7861f9c1bda89fb4"
 )
 
 
@@ -108,7 +144,7 @@ def test_generates_resource_names(
             scenario,
             scenario.networks[0],
         )
-        == "pyrange-segmented-lab-public-net"
+        == PUBLIC_NETWORK_NAME
     )
 
     assert (
@@ -116,7 +152,7 @@ def test_generates_resource_names(
             scenario,
             scenario.networks[1],
         )
-        == "pyrange-segmented-lab-private-net"
+        == PRIVATE_NETWORK_NAME
     )
 
     assert (
@@ -124,7 +160,7 @@ def test_generates_resource_names(
             scenario,
             scenario.machines[0],
         )
-        == "pyrange-segmented-lab-web"
+        == WEB_CONTAINER_NAME
     )
 
 
@@ -141,48 +177,78 @@ def test_start_lab_creates_multi_network_topology(
     mock_connect_container_to_network,
     mock_start_container,
     scenario: ScenarioConfig,
+    rollback_resources,
 ) -> None:
+    rollback_resources.configure(mock_create_network, mock_create_container, scenario)
     start_lab(scenario)
 
     assert mock_create_network.call_args_list == [
         call(
-            "pyrange-segmented-lab-public-net",
+            PUBLIC_NETWORK_NAME,
             "172.28.10.0/24",
+            labels={
+                "pyrange.managed": "true",
+                "pyrange.ownership.version": "1",
+                "pyrange.resource.kind": "network",
+                "pyrange.scenario.name": "segmented-lab",
+                "pyrange.resource.name": "public-net",
+                "pyrange.resource.identity": PUBLIC_NETWORK_NAME,
+            },
         ),
         call(
-            "pyrange-segmented-lab-private-net",
+            PRIVATE_NETWORK_NAME,
             "172.28.20.0/24",
+            labels={
+                "pyrange.managed": "true",
+                "pyrange.ownership.version": "1",
+                "pyrange.resource.kind": "network",
+                "pyrange.scenario.name": "segmented-lab",
+                "pyrange.resource.name": "private-net",
+                "pyrange.resource.identity": PRIVATE_NETWORK_NAME,
+            },
         ),
     ]
 
     assert mock_create_container.call_args_list == [
         call(
-            name="pyrange-segmented-lab-web",
+            name=WEB_CONTAINER_NAME,
             image="nginx:alpine",
-            network=(
-                "pyrange-segmented-lab-public-net"
-            ),
+            network=PUBLIC_NETWORK_NAME,
             ip="172.28.10.10",
+            labels={
+                "pyrange.managed": "true",
+                "pyrange.ownership.version": "1",
+                "pyrange.resource.kind": "container",
+                "pyrange.scenario.name": "segmented-lab",
+                "pyrange.resource.name": "web",
+                "pyrange.resource.identity": WEB_CONTAINER_NAME,
+            },
         ),
         call(
-            name="pyrange-segmented-lab-analyst",
+            name=ANALYST_CONTAINER_NAME,
             image="alpine:latest",
-            network=(
-                "pyrange-segmented-lab-public-net"
-            ),
+            network=PUBLIC_NETWORK_NAME,
             ip="172.28.10.20",
+            labels={
+                "pyrange.managed": "true",
+                "pyrange.ownership.version": "1",
+                "pyrange.resource.kind": "container",
+                "pyrange.scenario.name": "segmented-lab",
+                "pyrange.resource.name": "analyst",
+                "pyrange.resource.identity": ANALYST_CONTAINER_NAME,
+            },
         ),
     ]
 
     mock_connect_container_to_network.assert_called_once_with(
-        name="pyrange-segmented-lab-analyst",
-        network="pyrange-segmented-lab-private-net",
+        name=ANALYST_CONTAINER_NAME,
+        network=PRIVATE_NETWORK_NAME,
         ip="172.28.20.20",
     )
 
     assert mock_start_container.call_args_list == [
-        call("pyrange-segmented-lab-web"),
-        call("pyrange-segmented-lab-analyst"),
+        call(WEB_CONTAINER_NAME),
+        call(ANALYST_CONTAINER_NAME),
     ]
 
 
@@ -203,7 +269,9 @@ def test_start_lab_rolls_back_multi_network_failure(
     mock_remove_container,
     mock_remove_network,
     scenario: ScenarioConfig,
+    rollback_resources,
 ) -> None:
+    rollback_resources.configure(mock_create_network, mock_create_container, scenario)
     mock_connect_container_to_network.side_effect = (
         DockerOperationError(
             "failed to connect network"
@@ -217,13 +285,13 @@ def test_start_lab_rolls_back_multi_network_failure(
         start_lab(scenario)
 
     assert mock_remove_container.call_args_list == [
-        call("pyrange-segmented-lab-analyst"),
-        call("pyrange-segmented-lab-web"),
+        call(rollback_resources.ids[ANALYST_CONTAINER_NAME]),
+        call(rollback_resources.ids[WEB_CONTAINER_NAME]),
     ]
 
     assert mock_remove_network.call_args_list == [
-        call("pyrange-segmented-lab-private-net"),
-        call("pyrange-segmented-lab-public-net"),
+        call(rollback_resources.ids[PRIVATE_NETWORK_NAME]),
+        call(rollback_resources.ids[PUBLIC_NETWORK_NAME]),
     ]
 
 
@@ -234,16 +302,85 @@ def test_stop_lab_removes_resources_in_reverse_order(
     mock_remove_network,
     scenario: ScenarioConfig,
 ) -> None:
-    stop_lab(scenario)
+    web_id = "a" * 64
+    analyst_id = "b" * 64
+    public_id = "c" * 64
+    private_id = "d" * 64
+
+    containers = {
+        WEB_CONTAINER_NAME: DockerResourceIdentity(
+            resource_id=web_id,
+            labels=build_ownership_labels(
+                kind="container",
+                scenario_name="segmented-lab",
+                resource_name="web",
+            ),
+        ),
+        ANALYST_CONTAINER_NAME: DockerResourceIdentity(
+            resource_id=analyst_id,
+            labels=build_ownership_labels(
+                kind="container",
+                scenario_name="segmented-lab",
+                resource_name="analyst",
+            ),
+        ),
+    }
+
+    networks = {
+        PUBLIC_NETWORK_NAME: DockerResourceIdentity(
+            resource_id=public_id,
+            labels=build_ownership_labels(
+                kind="network",
+                scenario_name="segmented-lab",
+                resource_name="public-net",
+            ),
+        ),
+        PRIVATE_NETWORK_NAME: DockerResourceIdentity(
+            resource_id=private_id,
+            labels=build_ownership_labels(
+                kind="network",
+                scenario_name="segmented-lab",
+                resource_name="private-net",
+            ),
+        ),
+    }
+
+    with (
+        patch(
+            "pyrange.engine.manager.find_container_identity",
+            side_effect=containers.__getitem__,
+        ) as mock_find_container,
+        patch(
+            "pyrange.engine.manager.find_network_identity",
+            side_effect=networks.__getitem__,
+        ) as mock_find_network,
+        patch(
+            "pyrange.engine.docker.subprocess.run",
+            side_effect=AssertionError(
+                "This unit test must not execute Docker."
+            ),
+        ),
+    ):
+        stop_lab(scenario)
+
+    assert mock_find_container.call_args_list == [
+        call(ANALYST_CONTAINER_NAME),
+        call(WEB_CONTAINER_NAME),
+    ]
+
+    assert mock_find_network.call_args_list == [
+        call(PRIVATE_NETWORK_NAME),
+        call(PUBLIC_NETWORK_NAME),
+    ]
 
     assert mock_remove_container.call_args_list == [
-        call("pyrange-segmented-lab-analyst"),
-        call("pyrange-segmented-lab-web"),
+        call(analyst_id),
+        call(web_id),
     ]
 
     assert mock_remove_network.call_args_list == [
-        call("pyrange-segmented-lab-private-net"),
-        call("pyrange-segmented-lab-public-net"),
+        call(private_id),
+        call(public_id),
     ]
     
     
@@ -257,7 +394,9 @@ def test_start_lab_evaluates_machine_health_check(
     mock_start_container,
     mock_evaluate_health_check,
     health_scenario: ScenarioConfig,
+    rollback_resources,
 ) -> None:
+    rollback_resources.configure(mock_create_network, mock_create_container, health_scenario)
     mock_evaluate_health_check.return_value = (
         HealthCheckResult(
             healthy=True,
@@ -271,11 +410,11 @@ def test_start_lab_evaluates_machine_health_check(
     start_lab(health_scenario)
 
     mock_start_container.assert_called_once_with(
-        "pyrange-health-lab-web"
+        HEALTH_CONTAINER_NAME
     )
 
     mock_evaluate_health_check.assert_called_once_with(
-        "pyrange-health-lab-web",
+        HEALTH_CONTAINER_NAME,
         health_scenario.machines[0].health_check,
     )
 
@@ -294,7 +433,9 @@ def test_start_lab_rolls_back_unhealthy_machine(
     mock_remove_container,
     mock_remove_network,
     health_scenario: ScenarioConfig,
+    rollback_resources,
 ) -> None:
+    rollback_resources.configure(mock_create_network, mock_create_container, health_scenario)
     mock_evaluate_health_check.return_value = (
         HealthCheckResult(
             healthy=False,
@@ -312,11 +453,11 @@ def test_start_lab_rolls_back_unhealthy_machine(
         start_lab(health_scenario)
 
     mock_remove_container.assert_called_once_with(
-        "pyrange-health-lab-web"
+        rollback_resources.ids[HEALTH_CONTAINER_NAME]
     )
 
     mock_remove_network.assert_called_once_with(
-        "pyrange-health-lab-lab-net"
+        rollback_resources.ids[HEALTH_NETWORK_NAME]
     )
 
 
@@ -335,7 +476,9 @@ def test_start_lab_runs_health_checks_after_all_containers_start(
     mock_start_container,
     mock_evaluate_health_check,
     scenario: ScenarioConfig,
+    rollback_resources,
 ) -> None:
+    rollback_resources.configure(mock_create_network, mock_create_container, scenario)
     scenario.machines[0].health_check = HealthCheckConfig(
         command=["health-check"],
         retries=0,
@@ -363,7 +506,7 @@ def test_start_lab_runs_health_checks_after_all_containers_start(
     start_lab(scenario)
 
     assert events == [
-        "start:pyrange-segmented-lab-web",
-        "start:pyrange-segmented-lab-analyst",
-        "health:pyrange-segmented-lab-web",
+    f"start:{WEB_CONTAINER_NAME}",
+    f"start:{ANALYST_CONTAINER_NAME}",
+    f"health:{WEB_CONTAINER_NAME}",
     ]

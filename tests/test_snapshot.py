@@ -12,12 +12,42 @@ from pyrange.engine import (
     get_snapshot_image_ref,
     restore_machine_snapshot,
 )
+from pyrange.engine.ownership import build_ownership_labels
 from pyrange.models import (
     HealthCheckConfig,
     MachineConfig,
     NetworkConfig,
     NetworkInterfaceConfig,
     ScenarioConfig,
+)
+
+
+pytestmark = pytest.mark.usefixtures("no_legacy_resources")
+
+
+WEB_CONTAINER_NAME = (
+    "pyrange-v2-container-"
+    "a72b1735188af3b6fc188ccb131308e2549b3cdb40bb59c2ff48eb58e5ff4b2b"
+)
+
+LAB_NETWORK_NAME = (
+    "pyrange-v2-network-"
+    "acd1d32065691d60b08f07b36886b6edffdc48c3271c6cdc5f34f6d9d8658c0c"
+)
+
+PUBLIC_NETWORK_NAME = (
+    "pyrange-v2-network-"
+    "2fd34f153f539616bede1d0acecdfe54fcbeb06fc41e712d20eeee8c892c1afd"
+)
+
+PRIVATE_NETWORK_NAME = (
+    "pyrange-v2-network-"
+    "5b79cc70f0d5cf933d15f35197bf4d859311bdfb986f4836e938da1510f159b8"
+)
+
+SNAPSHOT_REPOSITORY_NAME = (
+    "pyrange-v2-snapshot-"
+    "70608625e6a6d15470792918e79ff8237bf46fae8048a3af6339b3ef3e9fe7ae"
 )
 
 
@@ -90,7 +120,7 @@ def test_generates_snapshot_image_ref(
 
     assert image_ref == (
         "pyrange-snapshots/"
-        "snapshot-lab-web:checkpoint-1"
+        f"{SNAPSHOT_REPOSITORY_NAME}:checkpoint-1"
     )
 
 
@@ -127,9 +157,10 @@ def test_rejects_invalid_snapshot_names(
 def test_creates_machine_snapshot(
     mock_create_container_snapshot,
     scenario: ScenarioConfig,
+    snapshot_resources,
 ) -> None:
     mock_create_container_snapshot.return_value = (
-        "sha256:snapshot123"
+        ("sha256:" + "c" * 64)
     )
 
     snapshot = create_machine_snapshot(
@@ -141,20 +172,21 @@ def test_creates_machine_snapshot(
     assert snapshot == MachineSnapshot(
         snapshot_name="checkpoint-1",
         machine_name="web",
-        container_name="pyrange-snapshot-lab-web",
+        container_name=WEB_CONTAINER_NAME,
         image_ref=(
             "pyrange-snapshots/"
-            "snapshot-lab-web:checkpoint-1"
+            f"{SNAPSHOT_REPOSITORY_NAME}:checkpoint-1"
         ),
-        image_id="sha256:snapshot123",
+        image_id=("sha256:" + "c" * 64),
     )
 
     mock_create_container_snapshot.assert_called_once_with(
-        name="pyrange-snapshot-lab-web",
+        name=snapshot_resources.container.resource_id,
         image_ref=(
             "pyrange-snapshots/"
-            "snapshot-lab-web:checkpoint-1"
+            f"{SNAPSHOT_REPOSITORY_NAME}:checkpoint-1"
         ),
+        labels=build_ownership_labels("snapshot", "snapshot-lab", "web"),
     )
 
 
@@ -165,6 +197,7 @@ def test_creates_machine_snapshot(
 def test_rejects_unknown_machine(
     mock_create_container_snapshot,
     scenario: ScenarioConfig,
+    snapshot_resources,
 ) -> None:
     with pytest.raises(
         SnapshotError,
@@ -182,15 +215,16 @@ def test_rejects_unknown_machine(
 @patch("pyrange.engine.snapshot.start_container")
 @patch("pyrange.engine.snapshot.create_container")
 @patch("pyrange.engine.snapshot.remove_container")
-@patch("pyrange.engine.snapshot.get_image_id")
+@patch("pyrange.engine.snapshot.find_image_identity")
 def test_restores_machine_snapshot(
-    mock_get_image_id,
+    mock_find_image_identity,
     mock_remove_container,
     mock_create_container,
     mock_start_container,
     scenario: ScenarioConfig,
+    snapshot_resources,
 ) -> None:
-    mock_get_image_id.return_value = "sha256:snapshot123"
+    mock_find_image_identity.return_value = snapshot_resources.image
 
     events: list[str] = []
 
@@ -221,30 +255,31 @@ def test_restores_machine_snapshot(
     assert result == MachineRestoreResult(
         snapshot_name="checkpoint-1",
         machine_name="web",
-        container_name="pyrange-snapshot-lab-web",
+        container_name=WEB_CONTAINER_NAME,
         image_ref=(
             "pyrange-snapshots/"
-            "snapshot-lab-web:checkpoint-1"
+            f"{SNAPSHOT_REPOSITORY_NAME}:checkpoint-1"
         ),
-        image_id="sha256:snapshot123",
+        image_id=("sha256:" + "c" * 64),
     )
 
-    mock_get_image_id.assert_called_once_with(
+    mock_find_image_identity.assert_called_once_with(
         "pyrange-snapshots/"
-        "snapshot-lab-web:checkpoint-1"
+        f"{SNAPSHOT_REPOSITORY_NAME}:checkpoint-1"
     )
 
     mock_create_container.assert_called_once_with(
-        name="pyrange-snapshot-lab-web",
-        image="sha256:snapshot123",
-        network="pyrange-snapshot-lab-lab-net",
+        name=WEB_CONTAINER_NAME,
+        image=("sha256:" + "c" * 64),
+        network=LAB_NETWORK_NAME,
         ip="172.28.40.10",
+        labels=build_ownership_labels("container", "snapshot-lab", "web"),
     )
 
     assert events == [
-        "remove:pyrange-snapshot-lab-web",
-        "create:pyrange-snapshot-lab-web",
-        "start:pyrange-snapshot-lab-web",
+       f"remove:{snapshot_resources.container.resource_id}",
+      f"create:{WEB_CONTAINER_NAME}",
+       f"start:{WEB_CONTAINER_NAME}",
     ]
 
 
@@ -255,16 +290,17 @@ def test_restores_machine_snapshot(
 )
 @patch("pyrange.engine.snapshot.create_container")
 @patch("pyrange.engine.snapshot.remove_container")
-@patch("pyrange.engine.snapshot.get_image_id")
+@patch("pyrange.engine.snapshot.find_image_identity")
 def test_restore_reconnects_secondary_networks(
-    mock_get_image_id,
+    mock_find_image_identity,
     mock_remove_container,
     mock_create_container,
     mock_connect_container_to_network,
     mock_start_container,
     multi_network_scenario: ScenarioConfig,
+    snapshot_resources,
 ) -> None:
-    mock_get_image_id.return_value = "sha256:snapshot123"
+    mock_find_image_identity.return_value = snapshot_resources.image
 
     restore_machine_snapshot(
         multi_network_scenario,
@@ -273,24 +309,25 @@ def test_restore_reconnects_secondary_networks(
     )
 
     mock_create_container.assert_called_once_with(
-        name="pyrange-snapshot-lab-web",
-        image="sha256:snapshot123",
+        name=WEB_CONTAINER_NAME,
+        image=("sha256:" + "c" * 64),
         network=(
-            "pyrange-snapshot-lab-public-net"
+            PUBLIC_NETWORK_NAME
         ),
         ip="172.28.40.10",
+        labels=build_ownership_labels("container", "snapshot-lab", "web"),
     )
 
     mock_connect_container_to_network.assert_called_once_with(
-        name="pyrange-snapshot-lab-web",
+        name=WEB_CONTAINER_NAME,
         network=(
-            "pyrange-snapshot-lab-private-net"
+            PRIVATE_NETWORK_NAME
         ),
         ip="172.28.50.10",
     )
 
     mock_start_container.assert_called_once_with(
-        "pyrange-snapshot-lab-web"
+        WEB_CONTAINER_NAME
     )
 
 
@@ -298,16 +335,17 @@ def test_restore_reconnects_secondary_networks(
 @patch("pyrange.engine.snapshot.start_container")
 @patch("pyrange.engine.snapshot.create_container")
 @patch("pyrange.engine.snapshot.remove_container")
-@patch("pyrange.engine.snapshot.get_image_id")
+@patch("pyrange.engine.snapshot.find_image_identity")
 def test_restore_evaluates_health_check(
-    mock_get_image_id,
+    mock_find_image_identity,
     mock_remove_container,
     mock_create_container,
     mock_start_container,
     mock_evaluate_health_check,
     scenario: ScenarioConfig,
+    snapshot_resources,
 ) -> None:
-    mock_get_image_id.return_value = "sha256:snapshot123"
+    mock_find_image_identity.return_value = snapshot_resources.image
 
     scenario.machines[0].health_check = HealthCheckConfig(
         command=["health-check"],
@@ -331,7 +369,7 @@ def test_restore_evaluates_health_check(
     )
 
     mock_evaluate_health_check.assert_called_once_with(
-        "pyrange-snapshot-lab-web",
+        WEB_CONTAINER_NAME,
         scenario.machines[0].health_check,
     )
 
@@ -340,16 +378,17 @@ def test_restore_evaluates_health_check(
 @patch("pyrange.engine.snapshot.start_container")
 @patch("pyrange.engine.snapshot.create_container")
 @patch("pyrange.engine.snapshot.remove_container")
-@patch("pyrange.engine.snapshot.get_image_id")
+@patch("pyrange.engine.snapshot.find_image_identity")
 def test_restore_rejects_unhealthy_machine(
-    mock_get_image_id,
+    mock_find_image_identity,
     mock_remove_container,
     mock_create_container,
     mock_start_container,
     mock_evaluate_health_check,
     scenario: ScenarioConfig,
+    snapshot_resources,
 ) -> None:
-    mock_get_image_id.return_value = "sha256:snapshot123"
+    mock_find_image_identity.return_value = snapshot_resources.image
 
     scenario.machines[0].health_check = HealthCheckConfig(
         command=["health-check"],
@@ -381,13 +420,14 @@ def test_restore_rejects_unhealthy_machine(
 
 
 @patch("pyrange.engine.snapshot.remove_container")
-@patch("pyrange.engine.snapshot.get_image_id")
+@patch("pyrange.engine.snapshot.find_image_identity")
 def test_restore_checks_snapshot_before_removing_container(
-    mock_get_image_id,
+    mock_find_image_identity,
     mock_remove_container,
     scenario: ScenarioConfig,
+    snapshot_resources,
 ) -> None:
-    mock_get_image_id.side_effect = DockerOperationError(
+    mock_find_image_identity.side_effect = DockerOperationError(
         "No such image"
     )
 
@@ -401,9 +441,9 @@ def test_restore_checks_snapshot_before_removing_container(
             snapshot_name="checkpoint-1",
         )
 
-    mock_get_image_id.assert_called_once_with(
+    mock_find_image_identity.assert_called_once_with(
         "pyrange-snapshots/"
-        "snapshot-lab-web:checkpoint-1"
+        f"{SNAPSHOT_REPOSITORY_NAME}:checkpoint-1"
     )
     mock_remove_container.assert_not_called()
 
@@ -412,6 +452,7 @@ def test_restore_checks_snapshot_before_removing_container(
 def test_restore_rejects_unknown_machine(
     mock_remove_container,
     scenario: ScenarioConfig,
+    snapshot_resources,
 ) -> None:
     with pytest.raises(
         SnapshotError,
@@ -430,6 +471,7 @@ def test_restore_rejects_unknown_machine(
 def test_restore_rejects_invalid_snapshot_name_before_removal(
     mock_remove_container,
     scenario: ScenarioConfig,
+    snapshot_resources,
 ) -> None:
     with pytest.raises(
         ValueError,

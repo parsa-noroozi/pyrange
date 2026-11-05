@@ -1,24 +1,30 @@
 import json
 import subprocess
+from uuid import uuid4
 
 import pytest
 
 from pyrange.core import load_scenario
+from pyrange.engine.docker import find_container_identity, find_network_identity
 from pyrange.engine import (
     DockerUnavailableError,
     get_docker_server_version,
+    get_lab_container_name,
+    get_lab_network_name,
     start_lab,
     stop_lab,
 )
 
 
 def docker_resource_exists(command: list[str]) -> bool:
-    result = subprocess.run(
-        command,
-        capture_output=True,
-        text=True,
-    )
-    return result.returncode == 0
+    # A failed query must not be accepted as proof of successful cleanup.
+    if len(command) != 4:
+        raise ValueError("Expected an inspect command with one resource name")
+    if command[:3] == ["docker", "container", "inspect"]:
+        return find_container_identity(command[3]) is not None
+    if command[:3] == ["docker", "network", "inspect"]:
+        return find_network_identity(command[3]) is not None
+    raise ValueError("Unsupported resource inspection command")
 
 
 def inspect_container_networks(
@@ -51,17 +57,19 @@ def test_segmented_lab_multi_network_lifecycle() -> None:
     scenario = load_scenario(
         "scenarios/segmented-lab.yaml"
     )
+    scenario.name = f"integration-{uuid4().hex}"
 
-    public_network = (
-        "pyrange-segmented-lab-public-net"
+    public_network = get_lab_network_name(
+        scenario, next(item for item in scenario.networks if item.name == "public-net")
     )
-    private_network = (
-        "pyrange-segmented-lab-private-net"
+    private_network = get_lab_network_name(
+        scenario, next(item for item in scenario.networks if item.name == "private-net")
     )
-
-    web_container = "pyrange-segmented-lab-web"
-    analyst_container = (
-        "pyrange-segmented-lab-analyst"
+    web_container = get_lab_container_name(
+        scenario, next(item for item in scenario.machines if item.name == "web")
+    )
+    analyst_container = get_lab_container_name(
+        scenario, next(item for item in scenario.machines if item.name == "analyst")
     )
 
     try:

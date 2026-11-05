@@ -6,6 +6,7 @@ from pyrange.engine.docker import (
     inspect_container_runtime,
     inspect_network_runtime,
 )
+from pyrange.engine.legacy import require_no_legacy_resources
 from pyrange.engine.manager import (
     get_lab_container_name,
     get_lab_network_name,
@@ -269,6 +270,8 @@ def _inspect_machine_status(
 def inspect_lab_status(
     scenario: ScenarioConfig,
 ) -> LabStatus:
+    require_no_legacy_resources(scenario)
+
     networks_by_name = {
         network.name: network
         for network in scenario.networks

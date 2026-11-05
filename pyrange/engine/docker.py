@@ -1,4 +1,6 @@
 import json
+import locale
+import math
 import subprocess
 from dataclasses import dataclass
 
@@ -43,6 +45,45 @@ def get_docker_server_version() -> str:
 
 class DockerOperationError(RuntimeError):
     pass
+
+
+class DockerCommandTimeoutError(DockerOperationError):
+    """The Docker exec client timed out; workload termination is unverified."""
+
+    def __init__(
+        self,
+        container_reference: str,
+        timeout_seconds: float,
+        *,
+        stdout: str = "",
+        stderr: str = "",
+    ) -> None:
+        self.container_reference = container_reference
+        self.timeout_seconds = timeout_seconds
+        self.stdout = stdout
+        self.stderr = stderr
+        self.cancellation_confirmed = False
+        super().__init__(
+            f"Command timed out in container '{container_reference}' "
+            f"after {timeout_seconds} seconds while waiting for Docker exec. "
+            "Workload cancellation is not confirmed; it may still be running."
+        )
+
+
+def _timeout_output_text(output: str | bytes | None) -> str:
+    if output is None:
+        return ""
+    if isinstance(output, bytes):
+        return output.decode(locale.getencoding(), errors="replace")
+    return output
+
+
+@dataclass(frozen=True)
+class DockerResourceIdentity:
+    resource_id: str
+    labels: dict[str, str] | None
+
+
 
 
 @dataclass(frozen=True)
@@ -125,6 +166,143 @@ def _load_single_inspect_object(
         )
 
     return payload[0]
+
+
+def inspect_container_identity(
+    reference: str,
+) -> DockerResourceIdentity:
+    result = _run_docker_query(
+        [
+            "docker",
+            "container",
+            "inspect",
+            reference,
+        ],
+        f"Failed to inspect Docker container '{reference}'.",
+    )
+
+    payload = _load_single_inspect_object(
+        result.stdout,
+        f"container '{reference}'",
+    )
+
+    resource_id = payload.get("Id")
+    config = payload.get("Config")
+
+    if (
+        not isinstance(resource_id, str)
+        or len(resource_id) != 64
+        or any(
+            character not in "0123456789abcdef"
+            for character in resource_id
+        )
+        or not isinstance(config, dict)
+    ):
+        raise DockerOperationError(
+            "Docker returned invalid identity data for "
+            f"container '{reference}'."
+        )
+
+    labels = config.get("Labels")
+
+    if labels is not None:
+        if not isinstance(labels, dict) or any(
+            not isinstance(key, str)
+            or not isinstance(value, str)
+            for key, value in labels.items()
+        ):
+            raise DockerOperationError(
+                "Docker returned invalid ownership labels for "
+                f"container '{reference}'."
+            )
+
+    return DockerResourceIdentity(
+        resource_id=resource_id,
+        labels=None if labels is None else dict(labels),
+    )
+
+
+def find_container_identity(
+    name: str,
+) -> DockerResourceIdentity | None:
+    if not isinstance(name, str):
+        raise TypeError("container name must be a string")
+    if not name or name != name.strip():
+        raise ValueError("container name must not be empty or padded")
+
+    result = _run_docker_query(
+        [
+            "docker",
+            "container",
+            "ls",
+            "--all",
+            "--no-trunc",
+            "--format",
+            "{{json .}}",
+        ],
+        "Failed to list Docker containers.",
+    )
+
+    matching_ids: list[str] = []
+
+    for line in result.stdout.splitlines():
+        if not line.strip():
+            continue
+
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise DockerOperationError(
+                "Docker returned invalid container listing data."
+            ) from exc
+
+        if not isinstance(entry, dict):
+            raise DockerOperationError(
+                "Docker returned invalid container listing data."
+            )
+
+        resource_id = entry.get("ID")
+        names = entry.get("Names")
+
+        if (
+            not isinstance(resource_id, str)
+            or len(resource_id) != 64
+            or any(
+                character not in "0123456789abcdef"
+                for character in resource_id
+            )
+            or not isinstance(names, str)
+            or not names.strip()
+        ):
+            raise DockerOperationError(
+                "Docker returned invalid container listing data."
+            )
+
+        listed_names = {
+            item.strip()
+            for item in names.split(",")
+        }
+
+        if name in listed_names:
+            matching_ids.append(resource_id)
+
+    if not matching_ids:
+        return None
+
+    if len(matching_ids) != 1:
+        raise DockerOperationError(
+            f"Docker returned ambiguous container name '{name}'."
+        )
+
+    selected_id = matching_ids[0]
+    identity = inspect_container_identity(selected_id)
+
+    if identity.resource_id != selected_id:
+        raise DockerOperationError(
+            "Docker inspection returned a different container ID."
+        )
+
+    return identity
 
 
 def inspect_container_runtime(
@@ -338,6 +516,145 @@ def get_container_stats(
     )
 
 
+def inspect_network_identity(
+    reference: str,
+) -> DockerResourceIdentity:
+    result = _run_docker_query(
+        [
+            "docker",
+            "network",
+            "inspect",
+            reference,
+        ],
+        f"Failed to inspect Docker network '{reference}'.",
+    )
+
+    payload = _load_single_inspect_object(
+        result.stdout,
+        f"network '{reference}'",
+    )
+
+    resource_id = payload.get("Id")
+
+    if (
+        not isinstance(resource_id, str)
+        or len(resource_id) != 64
+        or any(
+            character not in "0123456789abcdef"
+            for character in resource_id
+        )
+    ):
+        raise DockerOperationError(
+            "Docker returned invalid identity data for "
+            f"network '{reference}'."
+        )
+
+    labels = payload.get("Labels")
+
+    if labels is not None:
+        if not isinstance(labels, dict) or any(
+            not isinstance(key, str)
+            or not isinstance(value, str)
+            for key, value in labels.items()
+        ):
+            raise DockerOperationError(
+                "Docker returned invalid ownership labels for "
+                f"network '{reference}'."
+            )
+
+    return DockerResourceIdentity(
+        resource_id=resource_id,
+        labels=None if labels is None else dict(labels),
+    )
+
+
+def find_network_identity(
+    name: str,
+) -> DockerResourceIdentity | None:
+    if not isinstance(name, str):
+        raise TypeError("network name must be a string")
+    if not name or name != name.strip():
+        raise ValueError("network name must not be empty or padded")
+
+    result = _run_docker_query(
+        [
+            "docker",
+            "network",
+            "ls",
+            "--no-trunc",
+            "--format",
+            "{{json .}}",
+        ],
+        "Failed to list Docker networks.",
+    )
+
+    matching_ids: list[str] = []
+
+    for line in result.stdout.splitlines():
+        if not line.strip():
+            continue
+
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise DockerOperationError(
+                "Docker returned invalid network listing data."
+            ) from exc
+
+        if not isinstance(entry, dict):
+            raise DockerOperationError(
+                "Docker returned invalid network listing data."
+            )
+
+        resource_id = entry.get("ID")
+        listed_name = entry.get("Name")
+
+        if (
+            not isinstance(resource_id, str)
+            or not resource_id.strip()
+            or not isinstance(listed_name, str)
+            or not listed_name.strip()
+        ):
+            raise DockerOperationError(
+                "Docker returned invalid network listing data."
+            )
+
+        if listed_name != name:
+            continue
+
+        if (
+            len(resource_id) != 64
+            or any(
+                character not in "0123456789abcdef"
+                for character in resource_id
+            )
+        ):
+            raise DockerOperationError(
+                "Docker returned an invalid or unsupported "
+                f"network ID for '{name}'."
+            )
+
+        matching_ids.append(resource_id)
+
+    if not matching_ids:
+        return None
+
+    if len(matching_ids) != 1:
+        raise DockerOperationError(
+            f"Docker returned ambiguous network name '{name}'."
+        )
+
+    selected_id = matching_ids[0]
+    identity = inspect_network_identity(selected_id)
+
+    if identity.resource_id != selected_id:
+        raise DockerOperationError(
+            "Docker inspection returned a different network ID."
+        )
+
+    return identity
+
+
 def inspect_network_runtime(
     name: str,
 ) -> NetworkRuntimeState | None:
@@ -457,20 +774,35 @@ def get_image_id(image_ref: str) -> str:
     return image_id
 
 
-def create_network(name: str, subnet: str) -> str:
+def create_network(
+    name: str,
+    subnet: str,
+    *,
+    labels: dict[str, str] | None = None,
+) -> str:
+    command = [
+        "docker",
+        "network",
+        "create",
+        "--driver",
+        "bridge",
+        "--subnet",
+        subnet,
+        "--internal",
+    ]
+
+    if labels is not None:
+        for key, value in sorted(labels.items()):
+            command.extend([
+                "--label",
+                f"{key}={value}",
+            ])
+
+    command.append(name)
+
     try:
         result = subprocess.run(
-            [
-                "docker",
-                "network",
-                "create",
-                "--driver",
-                "bridge",
-                "--subnet",
-                subnet,
-                "--internal",
-                name,
-            ],
+            command,
             capture_output=True,
             text=True,
             check=True,
@@ -551,22 +883,37 @@ def create_container(
     image: str,
     network: str,
     ip: str,
+    *,
+    labels: dict[str, str] | None = None,
 ) -> str:
+    container_labels = {
+        "pyrange.managed": "true",
+    }
+    if labels is not None:
+        container_labels.update(labels)
+
+    command = [
+        "docker",
+        "create",
+        "--name",
+        name,
+        "--network",
+        network,
+        "--ip",
+        ip,
+    ]
+
+    for key, value in sorted(container_labels.items()):
+        command.extend([
+            "--label",
+            f"{key}={value}",
+        ])
+
+    command.append(image)
+
     try:
         result = subprocess.run(
-            [
-                "docker",
-                "create",
-                "--name",
-                name,
-                "--network",
-                network,
-                "--ip",
-                ip,
-                "--label",
-                "pyrange.managed=true",
-                image,
-            ],
+            command,
             capture_output=True,
             text=True,
             check=True,
@@ -619,6 +966,10 @@ def execute_container_command(
 ) -> ContainerCommandResult:
     if not command:
         raise ValueError("command must not be empty")
+    if isinstance(timeout_seconds, bool) or not isinstance(timeout_seconds, (int, float)):
+        raise TypeError("timeout_seconds must be a number")
+    if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+        raise ValueError("timeout_seconds must be finite and greater than zero")
 
     try:
         result = subprocess.run(
@@ -638,9 +989,11 @@ def execute_container_command(
             "Docker CLI was not found."
         ) from exc
     except subprocess.TimeoutExpired as exc:
-        raise DockerOperationError(
-            f"Command timed out in container '{name}' "
-            f"after {timeout_seconds} seconds."
+        raise DockerCommandTimeoutError(
+            name,
+            timeout_seconds,
+            stdout=_timeout_output_text(exc.stdout),
+            stderr=_timeout_output_text(exc.stderr),
         ) from exc
 
     return ContainerCommandResult(
@@ -653,15 +1006,26 @@ def execute_container_command(
 def create_container_snapshot(
     name: str,
     image_ref: str,
+    *,
+    labels: dict[str, str] | None = None,
 ) -> str:
+    command = ["docker", "commit"]
+    if labels is not None:
+        for key, value in sorted(labels.items()):
+            if (
+                not isinstance(key, str) or not key
+                or any(c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-" for c in key)
+                or not isinstance(value, str)
+                or any(c in value for c in "\r\n\x00")
+            ):
+                raise ValueError("Invalid snapshot label key or value.")
+            escaped = value.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$")
+            command.extend(["--change", f'LABEL {key}="{escaped}"'])
+    command.extend([name, image_ref])
+
     try:
         result = subprocess.run(
-            [
-                "docker",
-                "commit",
-                name,
-                image_ref,
-            ],
+            command,
             capture_output=True,
             text=True,
             check=True,
@@ -705,3 +1069,70 @@ def remove_container(name: str) -> None:
             or "Failed to remove Docker container."
         )
         raise DockerOperationError(message) from exc
+
+
+def _valid_image_identity(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and value.startswith("sha256:")
+        and len(value) == 71
+        and all(c in "0123456789abcdef" for c in value[7:])
+    )
+
+
+def inspect_image_identity(reference: str) -> DockerResourceIdentity:
+    result = _run_docker_query(
+        ["docker", "image", "inspect", reference],
+        f"Failed to inspect Docker image '{reference}'.",
+    )
+    payload = _load_single_inspect_object(result.stdout, f"image '{reference}'")
+    resource_id = payload.get("Id")
+    config = payload.get("Config")
+    if not _valid_image_identity(resource_id) or not isinstance(config, dict):
+        raise DockerOperationError("Docker returned invalid image identity data.")
+    labels = config.get("Labels")
+    if labels is not None and (
+        not isinstance(labels, dict)
+        or any(not isinstance(k, str) or not isinstance(v, str) for k, v in labels.items())
+    ):
+        raise DockerOperationError("Docker returned invalid image ownership labels.")
+    return DockerResourceIdentity(resource_id, None if labels is None else dict(labels))
+
+
+def find_image_identity(image_ref: str) -> DockerResourceIdentity | None:
+    """Resolve an explicit repository:tag, then inspect its immutable image ID."""
+    if not isinstance(image_ref, str):
+        raise TypeError("image reference must be a string")
+    repository, separator, tag = image_ref.rpartition(":")
+    if not separator or not repository or not tag or "/" in tag or "@" in image_ref or any(c.isspace() for c in image_ref):
+        raise ValueError("image reference must contain an explicit repository and tag")
+    result = _run_docker_query(
+        ["docker", "image", "ls", "--all", "--no-trunc", "--format", "{{json .}}"],
+        "Failed to list Docker images.",
+    )
+    matches = set()
+    for line in result.stdout.splitlines():
+        if not line.strip():
+            continue
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise DockerOperationError("Docker returned invalid image listing data.") from exc
+        if not isinstance(entry, dict) or any(
+            not isinstance(entry.get(key), str) or not entry[key]
+            for key in ("Repository", "Tag", "ID")
+        ):
+            raise DockerOperationError("Docker returned invalid image listing data.")
+        if entry["Repository"] == repository and entry["Tag"] == tag:
+            if not _valid_image_identity(entry["ID"]):
+                raise DockerOperationError("Docker returned invalid image ID.")
+            matches.add(entry["ID"])
+    if not matches:
+        return None
+    if len(matches) != 1:
+        raise DockerOperationError("Docker returned ambiguous image reference.")
+    selected_id = matches.pop()
+    identity = inspect_image_identity(selected_id)
+    if identity.resource_id != selected_id:
+        raise DockerOperationError("Docker inspection returned a different image ID.")
+    return identity

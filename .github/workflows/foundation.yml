@@ -22,13 +22,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-24.04, windows-latest]
         python: ['3.12', '3.14']
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python }}
       - name: Install test and build tools
@@ -51,7 +51,7 @@ jobs:
           subprocess.run([sys.executable, 'scripts/verify_wheel.py', str(wheels[0])], check=True)
       - name: Save validation artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: unit-wheel-${{ matrix.os }}-${{ matrix.python }}
           path: |
@@ -61,13 +61,13 @@ jobs:
 
   docker-integration:
     name: Docker integration (Linux)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.14'
       - name: Install test tools
@@ -87,7 +87,7 @@ jobs:
         run: python scripts/check_test_report.py integration-results.xml
       - name: Save integration report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: docker-integration
           path: integration-results.xml

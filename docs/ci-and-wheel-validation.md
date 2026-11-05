@@ -14,12 +14,19 @@ are not persisted. No deployment secrets or `pull_request_target` are used.
 
 | Job | Environment | Gate |
 | --- | --- | --- |
-| Unit and wheel | Linux and Windows; Python 3.12 and 3.14 | Non-integration tests, no skips, wheel build and clean installation smoke check |
-| Docker integration | Linux; Python 3.14 | Sequential real Docker tests, no skips |
+| Unit and wheel | Ubuntu 24.04 and Windows; Python 3.12 and 3.14 | Non-integration tests, no skips, wheel build and clean installation smoke check |
+| Docker integration | Ubuntu 24.04; Python 3.14 | Sequential real Docker tests, no skips |
 
 Python 3.12 is the declared minimum and 3.14 is the development target. The matrix
 does not prove support for every version metadata allows. Each job has a 20-minute
 limit; that is a CI limit, not a production workload-cancellation guarantee.
+
+The checkout, Python setup and artifact upload actions use their Node.js 24
+runtime releases (`@v6`). Node is an implementation detail of these actions;
+PyRange remains a Python project. Linux jobs use `ubuntu-24.04` explicitly so
+migration of `ubuntu-latest` does not silently change their OS release. This
+pins the Ubuntu release, not every installed tool or runner image revision.
+Windows continues to use `windows-latest`.
 
 ## Wheel check
 

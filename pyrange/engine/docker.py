@@ -1,4 +1,6 @@
 import json
+import locale
+import math
 import subprocess
 from dataclasses import dataclass
 
@@ -43,6 +45,37 @@ def get_docker_server_version() -> str:
 
 class DockerOperationError(RuntimeError):
     pass
+
+
+class DockerCommandTimeoutError(DockerOperationError):
+    """The Docker exec client timed out; workload termination is unverified."""
+
+    def __init__(
+        self,
+        container_reference: str,
+        timeout_seconds: float,
+        *,
+        stdout: str = "",
+        stderr: str = "",
+    ) -> None:
+        self.container_reference = container_reference
+        self.timeout_seconds = timeout_seconds
+        self.stdout = stdout
+        self.stderr = stderr
+        self.cancellation_confirmed = False
+        super().__init__(
+            f"Command timed out in container '{container_reference}' "
+            f"after {timeout_seconds} seconds while waiting for Docker exec. "
+            "Workload cancellation is not confirmed; it may still be running."
+        )
+
+
+def _timeout_output_text(output: str | bytes | None) -> str:
+    if output is None:
+        return ""
+    if isinstance(output, bytes):
+        return output.decode(locale.getencoding(), errors="replace")
+    return output
 
 
 @dataclass(frozen=True)
@@ -933,6 +966,10 @@ def execute_container_command(
 ) -> ContainerCommandResult:
     if not command:
         raise ValueError("command must not be empty")
+    if isinstance(timeout_seconds, bool) or not isinstance(timeout_seconds, (int, float)):
+        raise TypeError("timeout_seconds must be a number")
+    if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+        raise ValueError("timeout_seconds must be finite and greater than zero")
 
     try:
         result = subprocess.run(
@@ -952,9 +989,11 @@ def execute_container_command(
             "Docker CLI was not found."
         ) from exc
     except subprocess.TimeoutExpired as exc:
-        raise DockerOperationError(
-            f"Command timed out in container '{name}' "
-            f"after {timeout_seconds} seconds."
+        raise DockerCommandTimeoutError(
+            name,
+            timeout_seconds,
+            stdout=_timeout_output_text(exc.stdout),
+            stderr=_timeout_output_text(exc.stderr),
         ) from exc
 
     return ContainerCommandResult(

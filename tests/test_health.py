@@ -130,12 +130,12 @@ def test_health_check_returns_unhealthy_after_retries(
 @patch(
     "pyrange.engine.health.execute_container_command"
 )
-def test_health_check_retries_command_timeout(
+def test_health_check_retries_other_operation_errors(
     mock_execute,
     mock_sleep,
 ) -> None:
     mock_execute.side_effect = DockerOperationError(
-        "Command timed out"
+        "Docker operation failed"
     )
 
     result = evaluate_health_check(
@@ -148,7 +148,7 @@ def test_health_check_retries_command_timeout(
         attempts=2,
         exit_code=None,
         stdout="",
-        stderr="Command timed out",
+        stderr="Docker operation failed",
     )
 
     assert mock_execute.call_count == 2
